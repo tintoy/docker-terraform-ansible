@@ -247,3 +247,6 @@ paket-files/
 
 # CodeRush
 .cr/
+
+# Mac
+.DS_Store
