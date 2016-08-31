@@ -59,96 +59,65 @@ namespace ConsoleApplication
                         {
                             Type = "json-file",
                             Config = new Dictionary<string, string>()
-                        },
+                        }
+                    },
+                    Env = new List<string>
+                    {
+                        "ANSIBLE_NOCOLOR=1" // Disable coloured output because escape sequences look weird in the log.
                     }
                 };
 
                 CreateContainerResponse containerCreation = client.Containers.CreateContainerAsync(createParameters).Result;
-
                 Console.WriteLine($"Created container '{containerCreation.ID}'.");
-
-                CancellationTokenSource cts = new CancellationTokenSource();
-                cts.CancelAfter(
-                    TimeSpan.FromMinutes(5)
-                );
-
-                bool terminated = false;
-                Task eventPump = Task.Factory.StartNew(() =>
-                {
-                    using (DockerClient eventClient = client.Configuration.CreateClient())
-                    {
-                        Console.WriteLine("+++Waiting for events+++");
-                        ContainerEventsParameters eventsParameters = new ContainerEventsParameters
-                        {
-                            Filters = new Dictionary<string, IDictionary<string, bool>>
-                            {
-                                ["container"] = new Dictionary<string, bool>
-                                {
-                                    [containerCreation.ID] = true
-                                }
-                            }
-                        };
-                        using (Stream eventStream = eventClient.Miscellaneous.MonitorEventsAsync(eventsParameters, cts.Token).Result)
-                        using (StreamReader eventReader = new StreamReader(eventStream))
-                        {
-                            JsonSerializer serializer = new JsonSerializer();
-                            string line = eventReader.ReadLine();
-                            while (line != null)
-                            {
-                                JObject evt = JsonConvert.DeserializeObject<JObject>(line);
-                                string containerStatus = evt.Value<string>("status");
-                                Console.WriteLine("ContainerStatus: '{0}'", containerStatus);
-
-                                if (containerStatus == "die")
-                                {
-                                    terminated = true;
-                                    
-                                    return;
-                                }
-
-                                line = eventReader.ReadLine();
-                            }
-                        }
-                        Console.WriteLine("+++End of events+++");
-                    }
-                });
-
-                Task logPump = Task.Factory.StartNew(() =>
-                {
-                    using (DockerClient logClient = client.Configuration.CreateClient())
-                    {
-                        CancellationToken token = cts.Token;
-
-                        Console.WriteLine("***Waiting for output***");
-                        ContainerLogsParameters logParameters = new ContainerLogsParameters
-                        {
-                            ShowStdout = true,
-                            ShowStderr = true,
-                            Follow = true
-                        };
-                        using (Stream logStream = logClient.Containers.GetContainerLogsAsync(containerCreation.ID, logParameters, cts.Token).Result)
-                        using (StreamReader logReader = new StreamReader(logStream))
-                        {
-                            while (!terminated)
-                            {
-                                if (token.IsCancellationRequested)
-                                    return;
-
-                                string line = logReader.ReadLine();
-                                if (line != null)
-                                    Console.WriteLine(line);
-                                else
-                                    Thread.Sleep(200);
-                            }
-                        }
-                        Console.WriteLine("***End of output***");
-                    }
-                });
 
                 bool started = client.Containers.StartContainerAsync(containerCreation.ID, new HostConfig()).Result;
                 Console.WriteLine($"Started container: {started}");
 
-                Task.WaitAll(eventPump, logPump);
+                Console.WriteLine("+++Waiting for events+++");
+                ContainerEventsParameters eventsParameters = new ContainerEventsParameters
+                {
+                    Filters = new Dictionary<string, IDictionary<string, bool>>
+                    {
+                        ["container"] = new Dictionary<string, bool>
+                        {
+                            [containerCreation.ID] = true
+                        }
+                    }
+                };
+
+                using (Stream eventStream = client.Miscellaneous.MonitorEventsAsync(eventsParameters, CancellationToken.None).Result)
+                using (StreamReader eventReader = new StreamReader(eventStream))
+                {
+                    JsonSerializer serializer = new JsonSerializer();
+                    string line = eventReader.ReadLine();
+                    while (line != null)
+                    {
+                        JObject evt = JsonConvert.DeserializeObject<JObject>(line);
+                        string containerStatus = evt.Value<string>("status");
+                        Console.WriteLine("ContainerStatus: '{0}'", containerStatus);
+
+                        if (containerStatus == "die")
+                            break;
+
+                        line = eventReader.ReadLine();
+                    }
+                }
+                Console.WriteLine("+++End of events+++");
+
+                Console.WriteLine("***Waiting for output***");
+                ContainerLogsParameters logParameters = new ContainerLogsParameters
+                {
+                    ShowStdout = true,
+                    ShowStderr = true,
+                    Follow = false
+                };
+                using (Stream logStream = client.Containers.GetContainerLogsAsync(containerCreation.ID, logParameters, CancellationToken.None).Result)
+                using (StreamReader logReader = new StreamReader(logStream))
+                {
+                    string output = logReader.ReadToEnd();
+                    Console.WriteLine(output);
+                }
+                Console.WriteLine("***End of output***");
 
                 client.Containers.RemoveContainerAsync(containerCreation.ID, new ContainerRemoveParameters
                 {

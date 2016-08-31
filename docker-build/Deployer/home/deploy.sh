@@ -26,11 +26,16 @@ if [ ! -z $TF_VARIABLES_FILE ]; then
 fi
 
 # User infrastructure.
-terraform apply -state=state/terraform.tfstate
-terraform output -json -state=state/terraform.tfstate > state/terraform.output.json
+echo "Applying Terraform configuration..."
+terraform apply -no-color -state=./state/terraform.tfstate
+
+echo "Dumping Terraform outputs to './state/terraform.output.json'..."
+terraform output -json -state=./state/terraform.tfstate > ./state/terraform.output.json
 
 # Wait for deployed hosts to come up. 
+echo "Waiting for hosts to become available..."
 ansible-playbook playbooks/wait-for-hosts.yml
 
 # User deployment.
+echo "Performing Ansible deployment..."
 ansible-playbook deploy.yml
