@@ -27,6 +27,7 @@ fi
 
 # User infrastructure.
 terraform apply -state=state/terraform.tfstate
+terraform output -json -state=state/terraform.tfstate > state/terraform.output.json
 
 # Wait for deployed hosts to come up. 
 ansible-playbook playbooks/wait-for-hosts.yml
