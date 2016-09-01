@@ -4,8 +4,17 @@
     "debugType": "portable",
     "emitEntryPoint": true
   },
+  "tooling": {
+		"defaultNamespace": "DD.Research.DockerExecutor.Api"
+	},
   "dependencies": {
     "Docker.DotNet": "2.124.2",
+    "Microsoft.AspNetCore.Mvc": "1.0.0",
+    "Microsoft.AspNetCore.Server.Kestrel": "1.0.0",
+    "Microsoft.Extensions.Configuration": "1.0.0",
+    "Microsoft.Extensions.Configuration.CommandLine": "1.0.0",
+    "Microsoft.Extensions.Logging": "1.0.0",
+    "Microsoft.Extensions.Logging.Console": "1.0.0",
     "Newtonsoft.Json": "9.0.1",
     "System.Reactive": "3.0.0"
   },
@@ -17,7 +26,9 @@
           "version": "1.0.0"
         }
       },
-      "imports": [ "netstandard1.6" ]
+      "imports": [
+        "netstandard1.6"
+      ]
     }
   }
 }

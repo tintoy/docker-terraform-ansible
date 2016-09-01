@@ -1,31 +1,33 @@
-﻿using Docker.DotNet;
+using Docker.DotNet;
+using Docker.DotNet.Models;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
-using Docker.DotNet.Models;
+using Newtonsoft.Json.Linq;
+using System.Threading;
 
-namespace ConsoleApplication
+namespace DD.Research.DockerExecutor.Api
 {
-    public static class Program
+    public class Executor
     {
-        public static readonly string TargetImageName = "template/do-docker:latest";
-
-        public static void Main()
+        public Executor(ILogger<Executor> logger)
         {
-            TaskScheduler.UnobservedTaskException += (s, e) =>
-            {
-                Console.WriteLine(e.Exception);
-                e.SetObserved();
-            };
+            if (logger == null)
+                throw new ArgumentNullException(nameof(logger));
 
-            SynchronizationContext.SetSynchronizationContext(
-                new SynchronizationContext()
-            );
+            Log = logger;
+        }
+
+        ILogger Log { get; }
+
+        public async Task<bool> ExecuteAsync(string targetImageName, DirectoryInfo stateDirectory)
+        {
+            if (String.IsNullOrWhiteSpace(targetImageName))
+                throw new ArgumentException("Must supply a valid target image name.", nameof(targetImageName));
+
             try
             {
                 DockerClientConfiguration config = new DockerClientConfiguration(
@@ -33,15 +35,15 @@ namespace ConsoleApplication
                 );
                 DockerClient client = config.CreateClient();
 
-                var targetImage = client.FindImageByTagNameAsync(TargetImageName).Result;
+                ImagesListResponse targetImage = await client.Images.FindImageByTagNameAsync(targetImageName);
                 if (targetImage == null)
                 {
-                    Console.WriteLine($"Image not found: '{TargetImageName}'.");
+                    Log.LogError("Image not found: '{TargetImageName}'.", targetImageName);
 
-                    return;
+                    return false;
                 }
 
-                Console.WriteLine($"Target image Id is '{targetImage.ID}'.");
+                Log.LogInformation("Target image Id is '{TargetImageId}'.", targetImage.ID);
 
                 CreateContainerParameters createParameters = new CreateContainerParameters
                 {
@@ -53,7 +55,7 @@ namespace ConsoleApplication
                     {
                         Binds = new List<string>
                         {
-                            "/Users/tintoy/development/test-projects/tfa-do-docker/state:/root/state"
+                            $"{stateDirectory.FullName}:/root/state"
                         },
                         LogConfig = new LogConfig
                         {
@@ -68,12 +70,12 @@ namespace ConsoleApplication
                 };
 
                 CreateContainerResponse containerCreation = client.Containers.CreateContainerAsync(createParameters).Result;
-                Console.WriteLine($"Created container '{containerCreation.ID}'.");
+                Log.LogInformation("Created container '{ContainerId}'.", containerCreation.ID);
 
                 bool started = client.Containers.StartContainerAsync(containerCreation.ID, new HostConfig()).Result;
-                Console.WriteLine($"Started container: {started}");
+                Log.LogInformation("Started container: {ContainerStarted}", started);
 
-                Console.WriteLine("+++Waiting for events+++");
+                Log.LogInformation("Waiting for events");
                 ContainerEventsParameters eventsParameters = new ContainerEventsParameters
                 {
                     Filters = new Dictionary<string, IDictionary<string, bool>>
@@ -85,7 +87,7 @@ namespace ConsoleApplication
                     }
                 };
 
-                using (Stream eventStream = client.Miscellaneous.MonitorEventsAsync(eventsParameters, CancellationToken.None).Result)
+                using (Stream eventStream = await client.Miscellaneous.MonitorEventsAsync(eventsParameters, CancellationToken.None))
                 using (StreamReader eventReader = new StreamReader(eventStream))
                 {
                     JsonSerializer serializer = new JsonSerializer();
@@ -94,7 +96,7 @@ namespace ConsoleApplication
                     {
                         JObject evt = JsonConvert.DeserializeObject<JObject>(line);
                         string containerStatus = evt.Value<string>("status");
-                        Console.WriteLine("ContainerStatus: '{0}'", containerStatus);
+                        Log.LogDebug("Status-change event for container '{ContainerId}': {ContainerStatus}", containerCreation.ID, containerStatus);
 
                         if (containerStatus == "die")
                             break;
@@ -102,45 +104,35 @@ namespace ConsoleApplication
                         line = eventReader.ReadLine();
                     }
                 }
-                Console.WriteLine("+++End of events+++");
+                Log.LogInformation("End of events");
 
-                Console.WriteLine("***Waiting for output***");
+                Log.LogDebug("Reading logs for container {ContainerId}.", containerCreation.ID);
                 ContainerLogsParameters logParameters = new ContainerLogsParameters
                 {
                     ShowStdout = true,
                     ShowStderr = true,
                     Follow = false
                 };
-                using (Stream logStream = client.Containers.GetContainerLogsAsync(containerCreation.ID, logParameters, CancellationToken.None).Result)
+                using (Stream logStream = await client.Containers.GetContainerLogsAsync(containerCreation.ID, logParameters, CancellationToken.None))
                 using (StreamReader logReader = new StreamReader(logStream))
                 {
                     string output = logReader.ReadToEnd();
-                    Console.WriteLine(output);
+                    Log.LogDebug("Log entries for container {ContainerId}:\n{ContainerLogEntries}", containerCreation.ID, output);
                 }
-                Console.WriteLine("***End of output***");
-
-                client.Containers.RemoveContainerAsync(containerCreation.ID, new ContainerRemoveParameters
+                
+                await client.Containers.RemoveContainerAsync(containerCreation.ID, new ContainerRemoveParameters
                 {
                     Force = true
                 });
+
+                return true;
             }
             catch (Exception unexpectedError)
             {
                 Console.WriteLine(unexpectedError);
+
+                return false;
             }
-        }
-
-        static async Task<ImagesListResponse> FindImageByTagNameAsync(this DockerClient client, string tagName)
-        {
-            var images = await client.Images.ListImagesAsync(
-                new ImagesListParameters()
-            );
-
-            return images.FirstOrDefault(image =>
-                image.RepoTags != null
-                &&
-                image.RepoTags.Contains("template/do-docker:latest")
-            );
         }
     }
 }
