@@ -1,0 +1,11 @@
+# One-time bootstrap for SSH authentication (install SSH key)
+
+- hosts: all
+  tasks:
+    - name: Add SSH key
+      authorized_key:
+        user: root
+        key: "{{ lookup('file', '$HOME/.ssh/id_rsa.pub') }}"
+
+    - name: Remove password
+      command: "passwd -d root"

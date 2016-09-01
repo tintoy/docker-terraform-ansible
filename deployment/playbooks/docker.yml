@@ -1,0 +1,21 @@
+# Docker install via Ansible playbook.
+
+- hosts: role=deployment_api
+  tasks:
+    - name: Add Docker repo key
+      apt_key:
+        id: F76221572C52609D
+        keyserver: "http://apt.dockerproject.org/gpg"
+        state: present
+
+    - name: Add Docker repo
+      apt_repository:
+        repo: "deb http://apt.dockerproject.org/repo ubuntu-trusty main"
+        mode: 644
+        update_cache: yes
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: docker-engine
+        state: present
