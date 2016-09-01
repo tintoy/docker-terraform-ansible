@@ -44,6 +44,7 @@ namespace DD.Research.DockerExecutor.Api
             IWebHost host = new WebHostBuilder()
                 .UseConfiguration(Configuration)
                 .UseStartup<Startup>()
+                .UseUrls("http://*:5050/")
                 .UseKestrel()
                 .Build();
 

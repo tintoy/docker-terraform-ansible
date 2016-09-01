@@ -2,6 +2,9 @@
 
 FROM microsoft/dotnet:1.0.0-preview2-sdk
 
+VOLUME /var/run/docker.sock
+EXPOSE 5050
+
 RUN mkdir -p /dotnetapp
 WORKDIR /dotnetapp
 

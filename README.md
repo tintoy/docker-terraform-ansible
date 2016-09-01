@@ -1,3 +1,3 @@
-# Terraform and Ansible in Docker
+# A quick demo of service-catalog item deployment 
 
-And a web API to invoke them.
+Terraform and Ansible in Docker, and a web API to invoke them.
