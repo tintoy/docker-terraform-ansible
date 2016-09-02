@@ -34,6 +34,8 @@ resource "ddcloud_server" "api_host" {
 
 	os_image_name			= "Ubuntu 14.04 2 CPU"
 
+	auto_start				= true
+
 	disk {
 		scsi_unit_id		= 0
 		size_gb				= 60

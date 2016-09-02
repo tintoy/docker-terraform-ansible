@@ -1,10 +1,11 @@
-using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
+using System.Threading;
 
 namespace DD.Research.DockerExecutor.Api
 {
@@ -18,6 +19,7 @@ namespace DD.Research.DockerExecutor.Api
             services.AddMvc()
                 .AddJsonOptions(json =>
 				{
+                    json.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
 					json.SerializerSettings.Converters.Add(
 						new StringEnumConverter()
 					);
