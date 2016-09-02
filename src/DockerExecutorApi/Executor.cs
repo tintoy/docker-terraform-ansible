@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 
 namespace DD.Research.DockerExecutor.Api
 {
@@ -19,16 +20,45 @@ namespace DD.Research.DockerExecutor.Api
         /// <summary>
         ///     Create a new <see cref="Executor"/>.
         /// </summary>
+        /// <param name="executorOptions">
+        ///     The executor options.
+        /// </summary>
         /// <param name="logger">
         ///     The executor logger.
         /// </summary>
-        public Executor(ILogger<Executor> logger)
+        public Executor(IOptions<ExecutorOptions> executorOptions, ILogger<Executor> logger)
         {
+            if (executorOptions == null)
+                throw new ArgumentNullException(nameof(executorOptions));
+
             if (logger == null)
                 throw new ArgumentNullException(nameof(logger));
 
+            ExecutorOptions options = executorOptions.Value;
+            LocalStateDirectory = new DirectoryInfo(Path.GetFullPath(
+                Path.Combine(Directory.GetCurrentDirectory(), options.LocalStateDirectory)
+            ));
+            HostStateDirectory = new DirectoryInfo(Path.GetFullPath(
+                Path.Combine(Directory.GetCurrentDirectory(), options.HostStateDirectory)
+            ));
+
             Log = logger;
+
+            DockerClientConfiguration config = new DockerClientConfiguration(
+                new Uri("unix:///var/run/docker.sock")
+            );
+            Client = config.CreateClient();
         }
+
+        /// <summary>
+        ///     The local directory whose state sub-directories represent the state for deployment containers.
+        /// </summary>
+        DirectoryInfo LocalStateDirectory { get; }
+
+        /// <summary>
+        ///     The host directory corresponding to the local state directory.
+        /// </summary>
+        DirectoryInfo HostStateDirectory { get; }
 
         /// <summary>
         ///     The executor logger.
@@ -36,31 +66,47 @@ namespace DD.Research.DockerExecutor.Api
         ILogger Log { get; }
 
         /// <summary>
+        ///     The Docker API client.
+        /// </summary>
+        DockerClient Client { get; }
+
+        /// <summary>
         ///     Execute a deployment.
         /// </summary>
         /// <param name="templateImageName">
         ///     The name of the Docker image that implements the deployment template.
         /// </param>
-        /// <param name="stateDirectory"></param>
+        /// <param name="templateParameters">
+        ///     A dictionary containing global template parameters to be written to the state directory.
+        /// </param>
+        /// <param name="stateDirectory">
+        ///     The state directory to be mounted in the deployment container.
+        /// </param>
         /// <returns>
         ///     <c>true</c>, if the deployment was successful; otherwise, <c>false</c>.
         /// </returns>
-        public async Task<Result> ExecuteAsync(string templateImageName, DirectoryInfo stateDirectory)
+        public async Task<Result> ExecuteAsync(string templateImageName, IDictionary<string, object> templateParameters)
         {
             if (String.IsNullOrWhiteSpace(templateImageName))
                 throw new ArgumentException("Must supply a valid template image name.", nameof(templateImageName));
 
-            if (stateDirectory == null)
-                throw new ArgumentNullException(nameof(stateDirectory));
+            if (templateParameters == null)
+                throw new ArgumentNullException(nameof(templateParameters));
 
+            Guid deploymentId = Guid.NewGuid();
             try
             {
-                DockerClientConfiguration config = new DockerClientConfiguration(
-                    new Uri("unix:///var/run/docker.sock")
-                );
-                DockerClient client = config.CreateClient();
+                Log.LogInformation("Starting deployment '{DeploymentId}'...", deploymentId);
 
-                ImagesListResponse targetImage = await client.Images.FindImageByTagNameAsync(templateImageName);
+                DirectoryInfo deploymentLocalStateDirectory = GetLocalStateDirectory(deploymentId);
+                DirectoryInfo deploymentHostStateDirectory = GetHostStateDirectory(deploymentId);
+
+                Log.LogDebug("Local state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentLocalStateDirectory.FullName);
+                Log.LogDebug("Host state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentHostStateDirectory.FullName);
+                
+                WriteTemplateParameters(templateParameters, deploymentLocalStateDirectory);
+
+                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(templateImageName);
                 if (targetImage == null)
                 {
                     Log.LogError("Image not found: '{TemplateImageName}'.", templateImageName);
@@ -80,7 +126,7 @@ namespace DD.Research.DockerExecutor.Api
                     {
                         Binds = new List<string>
                         {
-                            $"{stateDirectory.FullName}:/root/state"
+                            $"{deploymentHostStateDirectory.FullName}:/root/state"
                         },
                         LogConfig = new LogConfig
                         {
@@ -94,89 +140,100 @@ namespace DD.Research.DockerExecutor.Api
                     }
                 };
 
-                CreateContainerResponse newContainer = await client.Containers.CreateContainerAsync(createParameters);
+                CreateContainerResponse newContainer = await Client.Containers.CreateContainerAsync(createParameters);
 
                 string containerId = newContainer.ID;
                 Log.LogInformation("Created container '{ContainerId}'.", containerId);
 
-                await client.Containers.StartContainerAsync(containerId, new HostConfig());
+                await Client.Containers.StartContainerAsync(containerId, new HostConfig());
                 Log.LogInformation("Started container: '{ContainerId}'.", containerId);
 
-                Log.LogInformation("Waiting for events");
-                ContainerEventsParameters eventsParameters = new ContainerEventsParameters
+                Log.LogInformation("Waiting for container termination...");
+                bool terminated = await Client.Containers.WaitForContainerTerminationAsync(containerId);
+                if (!terminated)
                 {
-                    Filters = new Dictionary<string, IDictionary<string, bool>>
-                    {
-                        ["container"] = new Dictionary<string, bool>
-                        {
-                            [newContainer.ID] = true
-                        }
-                    }
-                };
+                    Log.LogError("Timed out waiting for deployment process '{DeploymentId}' to terminate.", deploymentId);
 
-                using (Stream eventStream = await client.Miscellaneous.MonitorEventsAsync(eventsParameters, CancellationToken.None))
-                using (StreamReader eventReader = new StreamReader(eventStream))
-                {
-                    JsonSerializer serializer = new JsonSerializer();
-                    string line = eventReader.ReadLine();
-                    while (line != null)
-                    {
-                        JObject evt = JsonConvert.DeserializeObject<JObject>(line);
-                        string containerStatus = evt.Value<string>("status");
-                        Log.LogDebug("Status-change event for container '{ContainerId}': {ContainerStatus}", containerId, containerStatus);
-
-                        if (containerStatus == "die")
-                            break;
-
-                        line = eventReader.ReadLine();
-                    }
+                    return Result.Failed();
                 }
-                Log.LogInformation("End of events");
 
-                string deploymentLog;
                 Log.LogDebug("Reading logs for container {ContainerId}.", containerId);
-                ContainerLogsParameters logParameters = new ContainerLogsParameters
-                {
-                    ShowStdout = true,
-                    ShowStderr = true,
-                    Follow = false
-                };
-                using (Stream logStream = await client.Containers.GetContainerLogsAsync(containerId, logParameters, CancellationToken.None))
-                using (StreamReader logReader = new StreamReader(logStream))
-                {
-                    deploymentLog = logReader.ReadToEnd();
-                    Log.LogDebug("Log for container {ContainerId}:\n{ContainerLogEntries}", containerId, deploymentLog);
-                }
-                
-                await client.Containers.RemoveContainerAsync(containerId, new ContainerRemoveParameters
+                string deploymentLog = await Client.Containers.GetEntireContainerLogAsync(containerId);
+                Log.LogDebug("Log for container {ContainerId}:\n{ContainerLogEntries}", containerId, deploymentLog);
+
+                Log.LogDebug("Destroying container '{ContainerId}'...", containerId);
+                await Client.Containers.RemoveContainerAsync(containerId, new ContainerRemoveParameters
                 {
                     Force = true
                 });
+                Log.LogDebug("Destroyed container '{ContainerId}'...", containerId);
 
                 return new Result(
                     succeeded: true,
-                    outputs: ReadOutputs(stateDirectory),
+                    outputs: ReadOutputs(deploymentLocalStateDirectory),
                     log: deploymentLog
                 );
             }
             catch (Exception unexpectedError)
             {
-                Log.LogError("Unexpected error while executing deployment: {Error}.", unexpectedError);
+                Log.LogError("Unexpected error while executing deployment '{DeploymentId}': {Error}", deploymentId, unexpectedError);
 
                 return Result.Failed();
             }
         }
 
         /// <summary>
-        ///     Write Terraform variables to tfvars.json in the specified state directory.
+        ///     Get the local directory to hold state for the specified deployment.
+        /// </summary>
+        /// <param name="deploymentId">
+        ///     The deployment Id.
+        /// </param>
+        /// <returns>
+        ///     A <see cref="DirectoryInfo"/> representing the state directory.
+        /// </returns>
+        DirectoryInfo GetLocalStateDirectory(Guid deploymentId)
+        {
+            DirectoryInfo stateDirectory = new DirectoryInfo(Path.Combine(
+                LocalStateDirectory.FullName,
+                deploymentId.ToString("N")
+            ));
+            if (!stateDirectory.Exists)
+                stateDirectory.Create();
+
+            return stateDirectory;
+        }
+
+        /// <summary>
+        ///     Get the host directory that holds state for the specified deployment.
+        /// <param name="deploymentId">
+        ///     The deployment Id.
+        /// </param>
+        /// </summary>
+        /// <returns>
+        ///     A <see cref="DirectoryInfo"/> representing the state directory.
+        /// </returns>
+        DirectoryInfo GetHostStateDirectory(Guid deploymentId)
+        {
+            DirectoryInfo stateDirectory = new DirectoryInfo(Path.Combine(
+                HostStateDirectory.FullName,
+                deploymentId.ToString("N")
+            ));
+            if (!stateDirectory.Exists)
+                stateDirectory.Create();
+
+            return stateDirectory;
+        }
+
+        /// <summary>
+        ///     Write template parameters to tfvars.json in the specified state directory.
         /// </summary>
         /// <param name="variables">
-        ///     A dictionary containing the variables to write.
+        ///     A dictionary containing the template parameters to write.
         /// </param>
         /// <param name="stateDirectory">
         ///     The state directory.
         /// </param>
-        public void WriteVariables(IDictionary<string, object> variables, DirectoryInfo stateDirectory)
+        void WriteTemplateParameters(IDictionary<string, object> variables, DirectoryInfo stateDirectory)
         {
             if (variables == null)
                 throw new ArgumentNullException(nameof(variables));
@@ -184,17 +241,27 @@ namespace DD.Research.DockerExecutor.Api
             if (stateDirectory == null)
                 throw new ArgumentNullException(nameof(stateDirectory));
             
-            FileInfo variablesFile = new FileInfo(
-                Path.Combine(stateDirectory.FullName, "tfvars.json")
+            FileInfo variablesFile = GetTerraformVariableFile(stateDirectory);
+            Log.LogDebug("Writing {TemplateParameterCount} parameters to '{TerraformVariableFile}'...",
+                variables.Count,
+                variablesFile.FullName
             );
+
             if (variablesFile.Exists)
                 variablesFile.Delete();
+            else if (!stateDirectory.Exists)
+                stateDirectory.Create();
 
             using (StreamWriter writer = variablesFile.CreateText())
             {
                 JsonSerializer serializer = new JsonSerializer();
                 serializer.Serialize(writer, variables);
             }
+
+            Log.LogDebug("Wrote {TemplateParameterCount} parameters to '{TerraformVariableFile}'.",
+                variables.Count,
+                variablesFile.FullName
+            );
         }
 
         /// <summary>
@@ -214,19 +281,71 @@ namespace DD.Research.DockerExecutor.Api
             if (stateDirectory == null)
                 throw new ArgumentNullException(nameof(stateDirectory));
             
-            FileInfo outputsFile = new FileInfo(
-                Path.Combine(stateDirectory.FullName, "terraform.output.json")
+            FileInfo outputsFile = GetTerraformOutputFilePath(stateDirectory);
+            Log.LogDebug("Reading Terraform outputs from '{TerraformOutputsFile}'...",
+                outputsFile.FullName
             );
+            
             if (!outputsFile.Exists)
-                return new JObject();
+            {
+                Log.LogDebug("Terraform outputs file '{TerraformOutputsFile}' does not exist.", outputsFile.FullName);
 
+                return new JObject();
+            }
+
+            JObject outputs;
             using (StreamReader reader = outputsFile.OpenText())
             using (JsonReader jsonReader = new JsonTextReader(reader))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 
-                return serializer.Deserialize<JObject>(jsonReader);
+                outputs = serializer.Deserialize<JObject>(jsonReader);
             }
+
+            Log.LogDebug("Read {TemplateParameterCount} Terraform outputs from '{TerraformVariableFile}'.",
+                outputs.Count,
+                outputsFile.FullName
+            );
+
+            return outputs;
+        }
+
+        /// <summary>
+        ///     Get the Terraform variable file.
+        /// </summary>
+        /// <param name="stateDirectory">
+        ///     The deployment state directory.
+        /// </param>
+        /// <returns>
+        ///     The full path to the file.
+        /// </returns>
+        static FileInfo GetTerraformVariableFile(DirectoryInfo stateDirectory)
+        {
+            if (stateDirectory == null)
+                throw new ArgumentNullException(nameof(stateDirectory));
+
+            return new FileInfo(
+                Path.Combine(stateDirectory.FullName, "tfvars.json")
+            );
+        }
+
+        /// <summary>
+        ///     Get the Terraform outputs file.
+        /// </summary>
+        /// <param name="stateDirectory">
+        ///     The deployment state directory.
+        /// </param>
+        /// <returns>
+        ///     The outputs file.
+        /// </returns>
+        static FileInfo GetTerraformOutputFilePath(DirectoryInfo stateDirectory)
+        {
+            if (stateDirectory == null)
+                throw new ArgumentNullException(nameof(stateDirectory));
+
+            return new FileInfo(
+                Path.Combine(stateDirectory.FullName, "terraform.output.json")
+            );
         }
 
         /// <summary>

@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
+using System.IO;
 using System.Threading;
 
 namespace DD.Research.DockerExecutor.Api
@@ -15,6 +16,9 @@ namespace DD.Research.DockerExecutor.Api
 
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddOptions();
+            services.Configure<ExecutorOptions>(Configuration);
+
             services.AddLogging();
             services.AddMvc()
                 .AddJsonOptions(json =>
@@ -59,8 +63,10 @@ namespace DD.Research.DockerExecutor.Api
         static IConfiguration LoadConfiguration(string[] commandLineArguments)
         {
             return new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json")
+                .AddEnvironmentVariables(prefix: "DOOZER")
                 .AddCommandLine(commandLineArguments)
-                .AddEnvironmentVariables()
                 .Build();
         }
     }

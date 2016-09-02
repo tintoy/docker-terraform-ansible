@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json.Linq;
 
 namespace DD.Research.DockerExecutor.Api.Controllers
 {
-    using Models;
-
+    /// <summary>
+    ///     The API controller for deployment templates.
+    /// </summary>
     [Route("templates")]
     public class TemplatesController
         : Controller
@@ -15,7 +15,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         /// <returns>
         ///     A list of deployment templates.
         /// </returns>
-        [Route("")]
+        [HttpGet("")]
         public IActionResult ListTemplates()
         {
             return Ok(DummyData.DeploymentTemplates);

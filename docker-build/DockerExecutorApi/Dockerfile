@@ -2,6 +2,11 @@
 
 FROM microsoft/dotnet:1.0.0-preview2-sdk
 
+MAINTAINER Adam Friedman <tintoy@tintoy.io>
+
+RUN mkdir -p /var/lib/tfa/state
+VOLUME /var/lib/tfa/state
+
 VOLUME /var/run/docker.sock
 EXPOSE 5050
 
