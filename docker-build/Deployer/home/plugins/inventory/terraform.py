@@ -159,7 +159,7 @@ def ddcloud_server(resource, module_name):
         # ansible
         'ansible_ssh_host': raw_attrs['public_ipv4'],
         'ansible_ssh_port': 22,
-        'ansible_ssh_user': 'root',  # it's "root" (not "centos") on CloudControl
+        'ansible_ssh_user': 'root',  # it's "root" (not "ubuntu" or "centos") on CloudControl
 
         # generic
         'private_ipv4': raw_attrs['primary_adapter_ipv4'],
@@ -634,6 +634,46 @@ def azure_host(resource, module_name):
                    'azure_location=' + attrs['location'].lower().replace(" ", "-"),
                    'azure_username=' + attrs['username'],
                    'azure_security_group=' + attrs['security_group']])
+
+    # groups specific to mantl
+    groups.append('role=' + attrs['role'])
+    groups.append('dc=' + attrs['consul_dc'])
+
+    return name, attrs, groups
+
+@parses('azurerm_virtual_machine')
+@calculate_mantl_vars
+def azurerm_virtual_machine(resource, module_name):
+    name = resource['primary']['attributes']['name']
+    raw_attrs = resource['primary']['attributes']
+
+    groups = []
+
+    tags = parse_dict(raw_attrs, 'tags')
+
+    os_profile = parse_attr_list(raw_attrs, 'os_profile')[0]
+
+    attrs = {
+        'id': raw_attrs['id'],
+        'name': raw_attrs['name'],
+        'ip_address': tags['private_ip'],
+        'private_ip': tags['private_ip'],
+        'public_ip': tags['public_ip'],
+        'username': os_profile['admin_username'],
+        
+        # ansible
+        'ansible_ssh_port': 22,
+        'ansible_ssh_user': os_profile['admin_username'],
+        'ansible_ssh_host': tags['public_ip'],
+
+        'provider': 'azurerm'
+    }
+
+    # attrs specific to mantl
+    attrs.update({
+        'consul_dc': tags.get('consul_dc', 'dc1'),
+        'role': tags['role']
+    })
 
     # groups specific to mantl
     groups.append('role=' + attrs['role'])

@@ -8,10 +8,20 @@ if [ ! -e deploy.tf ]; then
     exit 1
 fi
 
+if [ -e pre_deploy.sh ]; then
+    echo "Executing pre-deployment hook '/root/pre_deploy.sh'..."
+    sh pre_deploy.sh
+fi
+
 if [ ! -e deploy.yml ]; then
     echo "'/root/deploy.yml' is not present; deploy.sh cannot be run directly from this container image; create an image that includes an Ansible playbook called deploy.yml."
 
     exit 1
+fi
+
+if [ -e post_deploy.sh ]; then
+    echo "Executing post-deployment hook '/root/post_deploy.sh'..."
+    sh after_deploy.sh
 fi
 
 if [ ! -z $TF_VARIABLES_FILE ]; then
@@ -27,7 +37,7 @@ fi
 
 # User infrastructure.
 echo "Applying Terraform configuration..."
-terraform apply -no-color -state=./state/terraform.tfstate
+terraform apply -no-color -parallelism=${MAX_TF_PARALLELISM:-10} -state=./state/terraform.tfstate
 
 echo "Dumping Terraform outputs to './state/terraform.output.json'..."
 terraform output -json -state=./state/terraform.tfstate > ./state/terraform.output.json
