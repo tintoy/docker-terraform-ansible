@@ -57,11 +57,13 @@ namespace DD.Research.DockerExecutor.Api.Controllers
                 });
             }
 
-            Executor.Result deploymentResult = await _executor.ExecuteAsync(template.ImageName, model.Parameters);
+            string deploymentId = HttpContext.TraceIdentifier;
+            Executor.Result deploymentResult = await _executor.ExecuteAsync(deploymentId, template.ImageName, model.Parameters);
 
             DeploymentResultModel resultModel = new DeploymentResultModel
             {
                 Success = deploymentResult.Succeeded,
+                DeploymentId = deploymentId,
                 Logs =
                 {
                     new DeploymentLogModel

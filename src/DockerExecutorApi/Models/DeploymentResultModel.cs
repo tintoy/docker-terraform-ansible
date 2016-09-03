@@ -7,6 +7,8 @@ namespace DD.Research.DockerExecutor.Api.Models
     public class DeploymentResultModel
     {
         public bool Success { get; set; }
+
+        public string DeploymentId { get; set; }
         
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
         public List<DeploymentLogModel> Logs { get; } = new List<DeploymentLogModel>();

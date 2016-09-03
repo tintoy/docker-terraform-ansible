@@ -6,7 +6,6 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 
@@ -76,8 +75,11 @@ namespace DD.Research.DockerExecutor.Api
         /// <summary>
         ///     Execute a deployment.
         /// </summary>
-        /// <param name="templateImageName">
-        ///     The name of the Docker image that implements the deployment template.
+        /// <param name="deploymentId">
+        ///     A unique identifier for the deployment.
+        /// </param>
+        /// <param name="templateImageTag">
+        ///     The tag of the Docker image that implements the deployment template.
         /// </param>
         /// <param name="templateParameters">
         ///     A dictionary containing global template parameters to be written to the state directory.
@@ -88,18 +90,17 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     <c>true</c>, if the deployment was successful; otherwise, <c>false</c>.
         /// </returns>
-        public async Task<Result> ExecuteAsync(string templateImageName, IDictionary<string, string> templateParameters)
+        public async Task<Result> ExecuteAsync(string deploymentId, string templateImageTag, IDictionary<string, string> templateParameters)
         {
-            if (String.IsNullOrWhiteSpace(templateImageName))
-                throw new ArgumentException("Must supply a valid template image name.", nameof(templateImageName));
+            if (String.IsNullOrWhiteSpace(templateImageTag))
+                throw new ArgumentException("Must supply a valid template image name.", nameof(templateImageTag));
 
             if (templateParameters == null)
                 throw new ArgumentNullException(nameof(templateParameters));
 
-            Guid deploymentId = Guid.NewGuid();
             try
             {
-                Log.LogInformation("Starting deployment '{DeploymentId}' using image '{ImageTag}'...", deploymentId, templateImageName);
+                Log.LogInformation("Starting deployment '{DeploymentId}' using image '{ImageTag}'...", deploymentId, templateImageTag);
 
                 DirectoryInfo deploymentLocalStateDirectory = GetLocalStateDirectory(deploymentId);
                 DirectoryInfo deploymentHostStateDirectory = GetHostStateDirectory(deploymentId);
@@ -109,10 +110,10 @@ namespace DD.Research.DockerExecutor.Api
                 
                 WriteTemplateParameters(templateParameters, deploymentLocalStateDirectory);
 
-                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(templateImageName);
+                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(templateImageTag);
                 if (targetImage == null)
                 {
-                    Log.LogError("Image not found: '{TemplateImageName}'.", templateImageName);
+                    Log.LogError("Image not found: '{TemplateImageName}'.", templateImageTag);
 
                     return Result.Failed();
                 }
@@ -121,7 +122,7 @@ namespace DD.Research.DockerExecutor.Api
 
                 CreateContainerParameters createParameters = new CreateContainerParameters
                 {
-                    Name = "deploy-" + deploymentId.ToString("N"),
+                    Name = "deploy-" + deploymentId,
                     Image = targetImage.ID,
                     AttachStdout = true,
                     AttachStderr = true,
@@ -140,6 +141,12 @@ namespace DD.Research.DockerExecutor.Api
                     Env = new List<string>
                     {
                         "ANSIBLE_NOCOLOR=1" // Disable coloured output because escape sequences look weird in the log.
+                    },
+                    Labels = new Dictionary<string, string>
+                    {
+                        ["task.type"] = "deployment",
+                        ["deployment.id"] = deploymentId,
+                        ["deployment.image.tag"] = templateImageTag
                     }
                 };
 
@@ -195,11 +202,11 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     A <see cref="DirectoryInfo"/> representing the state directory.
         /// </returns>
-        DirectoryInfo GetLocalStateDirectory(Guid deploymentId)
+        DirectoryInfo GetLocalStateDirectory(string deploymentId)
         {
             DirectoryInfo stateDirectory = new DirectoryInfo(Path.Combine(
                 LocalStateDirectory.FullName,
-                deploymentId.ToString("N")
+                deploymentId
             ));
             if (!stateDirectory.Exists)
                 stateDirectory.Create();
@@ -216,11 +223,11 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     A <see cref="DirectoryInfo"/> representing the state directory.
         /// </returns>
-        DirectoryInfo GetHostStateDirectory(Guid deploymentId)
+        DirectoryInfo GetHostStateDirectory(string deploymentId)
         {
             DirectoryInfo stateDirectory = new DirectoryInfo(Path.Combine(
                 HostStateDirectory.FullName,
-                deploymentId.ToString("N")
+                deploymentId
             ));
             if (!stateDirectory.Exists)
                 stateDirectory.Create();
