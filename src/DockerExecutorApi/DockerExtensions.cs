@@ -20,11 +20,16 @@ namespace DD.Research.DockerExecutor.Api
                 new ImagesListParameters()
             );
 
-            return images.FirstOrDefault(image =>
-                image.RepoTags != null
-                &&
-                image.RepoTags.Contains("template/do-docker:latest")
-            );
+            // Always retrieve the latest image.
+
+            return images
+                .Where(image =>
+                    image.RepoTags != null
+                    &&
+                    image.RepoTags.Contains(tagName)
+                )
+                .OrderByDescending(image => image.Created)
+                .FirstOrDefault();
         }
 
         public static async Task<bool> WaitForContainerTerminationAsync(this IContainerOperations containerOperations, string containerId)
@@ -35,7 +40,7 @@ namespace DD.Research.DockerExecutor.Api
             while ((now - then) < timeout)
             {
                 ContainerInspectResponse containerState = await containerOperations.InspectContainerAsync(containerId);
-                if (containerState.State.Dead)
+                if (containerState.State.Status == "exited")
                     return true;
 
                 await Task.Delay(

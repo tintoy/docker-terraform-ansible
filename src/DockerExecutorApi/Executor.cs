@@ -12,6 +12,9 @@ using Microsoft.Extensions.Options;
 
 namespace DD.Research.DockerExecutor.Api
 {
+    using System.Linq;
+    using Models;
+
     /// <summary>
     ///     The executor for deployment jobs via Docker.
     /// </summary>
@@ -53,12 +56,12 @@ namespace DD.Research.DockerExecutor.Api
         /// <summary>
         ///     The local directory whose state sub-directories represent the state for deployment containers.
         /// </summary>
-        DirectoryInfo LocalStateDirectory { get; }
+        public DirectoryInfo LocalStateDirectory { get; }
 
         /// <summary>
         ///     The host directory corresponding to the local state directory.
         /// </summary>
-        DirectoryInfo HostStateDirectory { get; }
+        public DirectoryInfo HostStateDirectory { get; }
 
         /// <summary>
         ///     The executor logger.
@@ -85,7 +88,7 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     <c>true</c>, if the deployment was successful; otherwise, <c>false</c>.
         /// </returns>
-        public async Task<Result> ExecuteAsync(string templateImageName, IDictionary<string, object> templateParameters)
+        public async Task<Result> ExecuteAsync(string templateImageName, IDictionary<string, string> templateParameters)
         {
             if (String.IsNullOrWhiteSpace(templateImageName))
                 throw new ArgumentException("Must supply a valid template image name.", nameof(templateImageName));
@@ -96,13 +99,13 @@ namespace DD.Research.DockerExecutor.Api
             Guid deploymentId = Guid.NewGuid();
             try
             {
-                Log.LogInformation("Starting deployment '{DeploymentId}'...", deploymentId);
+                Log.LogInformation("Starting deployment '{DeploymentId}' using image '{ImageTag}'...", deploymentId, templateImageName);
 
                 DirectoryInfo deploymentLocalStateDirectory = GetLocalStateDirectory(deploymentId);
                 DirectoryInfo deploymentHostStateDirectory = GetHostStateDirectory(deploymentId);
 
-                Log.LogDebug("Local state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentLocalStateDirectory.FullName);
-                Log.LogDebug("Host state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentHostStateDirectory.FullName);
+                Log.LogInformation("Local state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentLocalStateDirectory.FullName);
+                Log.LogInformation("Host state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentHostStateDirectory.FullName);
                 
                 WriteTemplateParameters(templateParameters, deploymentLocalStateDirectory);
 
@@ -114,11 +117,11 @@ namespace DD.Research.DockerExecutor.Api
                     return Result.Failed();
                 }
 
-                Log.LogDebug("Template image Id is '{TemplateImageId}'.", targetImage.ID);
+                Log.LogInformation("Template image Id is '{TemplateImageId}'.", targetImage.ID);
 
                 CreateContainerParameters createParameters = new CreateContainerParameters
                 {
-                    Name = "do-docker",
+                    Name = "deploy-" + deploymentId.ToString("N"),
                     Image = targetImage.ID,
                     AttachStdout = true,
                     AttachStderr = true,
@@ -157,21 +160,22 @@ namespace DD.Research.DockerExecutor.Api
                     return Result.Failed();
                 }
 
-                Log.LogDebug("Reading logs for container {ContainerId}.", containerId);
+                Log.LogInformation("Reading logs for container {ContainerId}.", containerId);
                 string deploymentLog = await Client.Containers.GetEntireContainerLogAsync(containerId);
-                Log.LogDebug("Log for container {ContainerId}:\n{ContainerLogEntries}", containerId, deploymentLog);
+                Log.LogInformation("Log for container {ContainerId}:\n{ContainerLogEntries}", containerId, deploymentLog);
 
-                Log.LogDebug("Destroying container '{ContainerId}'...", containerId);
+                Log.LogInformation("Destroying container '{ContainerId}'...", containerId);
                 await Client.Containers.RemoveContainerAsync(containerId, new ContainerRemoveParameters
                 {
                     Force = true
                 });
-                Log.LogDebug("Destroyed container '{ContainerId}'...", containerId);
+                Log.LogInformation("Destroyed container '{ContainerId}'...", containerId);
 
                 return new Result(
                     succeeded: true,
                     outputs: ReadOutputs(deploymentLocalStateDirectory),
-                    log: deploymentLog
+                    containerLog: deploymentLog,
+                    deploymentLogs: ReadDeploymentLogs(deploymentLocalStateDirectory)
                 );
             }
             catch (Exception unexpectedError)
@@ -233,7 +237,7 @@ namespace DD.Research.DockerExecutor.Api
         /// <param name="stateDirectory">
         ///     The state directory.
         /// </param>
-        void WriteTemplateParameters(IDictionary<string, object> variables, DirectoryInfo stateDirectory)
+        void WriteTemplateParameters(IDictionary<string, string> variables, DirectoryInfo stateDirectory)
         {
             if (variables == null)
                 throw new ArgumentNullException(nameof(variables));
@@ -242,7 +246,7 @@ namespace DD.Research.DockerExecutor.Api
                 throw new ArgumentNullException(nameof(stateDirectory));
             
             FileInfo variablesFile = GetTerraformVariableFile(stateDirectory);
-            Log.LogDebug("Writing {TemplateParameterCount} parameters to '{TerraformVariableFile}'...",
+            Log.LogInformation("Writing {TemplateParameterCount} parameters to '{TerraformVariableFile}'...",
                 variables.Count,
                 variablesFile.FullName
             );
@@ -258,7 +262,7 @@ namespace DD.Research.DockerExecutor.Api
                 serializer.Serialize(writer, variables);
             }
 
-            Log.LogDebug("Wrote {TemplateParameterCount} parameters to '{TerraformVariableFile}'.",
+            Log.LogInformation("Wrote {TemplateParameterCount} parameters to '{TerraformVariableFile}'.",
                 variables.Count,
                 variablesFile.FullName
             );
@@ -282,13 +286,13 @@ namespace DD.Research.DockerExecutor.Api
                 throw new ArgumentNullException(nameof(stateDirectory));
             
             FileInfo outputsFile = GetTerraformOutputFilePath(stateDirectory);
-            Log.LogDebug("Reading Terraform outputs from '{TerraformOutputsFile}'...",
+            Log.LogInformation("Reading Terraform outputs from '{TerraformOutputsFile}'...",
                 outputsFile.FullName
             );
             
             if (!outputsFile.Exists)
             {
-                Log.LogDebug("Terraform outputs file '{TerraformOutputsFile}' does not exist.", outputsFile.FullName);
+                Log.LogInformation("Terraform outputs file '{TerraformOutputsFile}' does not exist.", outputsFile.FullName);
 
                 return new JObject();
             }
@@ -302,7 +306,7 @@ namespace DD.Research.DockerExecutor.Api
                 outputs = serializer.Deserialize<JObject>(jsonReader);
             }
 
-            Log.LogDebug("Read {TemplateParameterCount} Terraform outputs from '{TerraformVariableFile}'.",
+            Log.LogInformation("Read {TemplateParameterCount} Terraform outputs from '{TerraformVariableFile}'.",
                 outputs.Count,
                 outputsFile.FullName
             );
@@ -349,6 +353,47 @@ namespace DD.Research.DockerExecutor.Api
         }
 
         /// <summary>
+        ///     Retrieve all deployment logs from the state directory.
+        /// </summary>
+        /// <param name="stateDirectory">
+        ///     The state directory for a deployment.
+        /// </param>
+        /// <returns>
+        ///     A sequence of <see cref="DeploymentLogModel"/>s.
+        /// </returns>
+        IEnumerable<DeploymentLogModel> ReadDeploymentLogs(DirectoryInfo stateDirectory)
+        {
+            if (stateDirectory == null)
+                throw new ArgumentNullException(nameof(stateDirectory));
+
+            DirectoryInfo logsDirectory = new DirectoryInfo(
+                Path.Combine(stateDirectory.FullName, "logs")
+            );
+            if (!logsDirectory.Exists)
+                yield break;
+
+            // Get the log files in the order they were written.
+            FileInfo[] logFilesByTimestamp =
+                logsDirectory.EnumerateFiles("*.log")
+                    .OrderBy(logFile => logFile.LastWriteTime)
+                    .ToArray();
+
+            foreach (FileInfo logFile in logFilesByTimestamp)
+            {
+                Log.LogInformation("Reading deployment log 'LogFile'...", logFile.FullName);
+                using (StreamReader logReader = logFile.OpenText())
+                {
+                    yield return new DeploymentLogModel
+                    {
+                        LogFile = logFile.Name,
+                        LogContent = logReader.ReadToEnd()
+                    };
+                }
+                Log.LogInformation("Read deployment log 'LogFile'.", logFile.FullName);
+            }
+        }
+
+        /// <summary>
         ///     Represents the result of an <see cref="Executor"/> deployment run.
         /// </summary>
         public sealed class Result
@@ -362,14 +407,15 @@ namespace DD.Research.DockerExecutor.Api
             /// <param name="outputs">
             ///     JSON representing outputs from Terraform.
             /// </param>
-            /// <param name="log">
-            ///     The execution log.
+            /// <param name="containerLog">
+            ///     The container log.
             /// </param>
-            public Result(bool succeeded, JObject outputs, string log)
+            public Result(bool succeeded, JObject outputs, string containerLog, IEnumerable<DeploymentLogModel> deploymentLogs)
             {
                 Succeeded = succeeded;
                 Outputs = outputs ?? new JObject();
-                Log = log ?? String.Empty;
+                ContainerLog = containerLog ?? String.Empty;
+                DeploymentLogs = (deploymentLogs ?? Enumerable.Empty<DeploymentLogModel>()).ToArray();
             }
 
             /// <summary>
@@ -383,10 +429,14 @@ namespace DD.Research.DockerExecutor.Api
             public JObject Outputs { get; }
 
             /// <summary>
-            ///     The deployment output.
+            ///     The container log.
             /// </summary>
-            /// <returns></returns>
-            public string Log { get; }
+            public string ContainerLog { get; }
+
+            /// <summary>
+            ///     The deployment log.
+            /// </summary>
+            public DeploymentLogModel[] DeploymentLogs { get; }
 
             /// <summary>
             ///     Create a <see cref="Result"/> representing a failed deployment. 
@@ -394,15 +444,19 @@ namespace DD.Research.DockerExecutor.Api
             /// <returns>
             ///     The new <see cref="Result"/>.
             /// </returns>
-            /// <param name="log">
-            ///     The execution log (if any).
+            /// <param name="containerLog">
+            ///     The container log (if any).
             /// </param>
-            public static Result Failed(string log = null)
+            /// <param name="deploymentLogs">
+            ///     The deployment logs (if any).
+            /// </param>
+            public static Result Failed(string containerLog = null, IEnumerable<DeploymentLogModel> deploymentLogs = null)
             {
                 return new Result(
                     succeeded: false,
                     outputs: null,
-                    log: log
+                    containerLog: containerLog,
+                    deploymentLogs: deploymentLogs
                 );
             }
         }

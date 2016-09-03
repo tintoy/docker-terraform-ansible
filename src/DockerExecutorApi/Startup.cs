@@ -34,7 +34,7 @@ namespace DD.Research.DockerExecutor.Api
 
         public void Configure(IApplicationBuilder app, ILoggerFactory loggerFactory)
         {
-            loggerFactory.AddConsole();
+            loggerFactory.AddConsole(LogLevel.Trace, includeScopes: true);
 
             app.UseMvc();
         }
@@ -65,7 +65,6 @@ namespace DD.Research.DockerExecutor.Api
             return new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
-                .AddEnvironmentVariables(prefix: "DOOZER")
                 .AddCommandLine(commandLineArguments)
                 .Build();
         }

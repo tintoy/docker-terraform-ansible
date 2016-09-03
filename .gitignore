@@ -250,3 +250,6 @@ paket-files/
 
 # Mac
 .DS_Store
+
+# Temporary state files
+src/DockerExecutorApi/state

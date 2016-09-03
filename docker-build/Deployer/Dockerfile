@@ -18,4 +18,4 @@ ENV MAX_TF_PARALLELISM=10
 RUN mkdir -p /root/state
 VOLUME /root/state
 
-ENTRYPOINT ["/bin/bash", "deploy.sh"]
+ENTRYPOINT ["/bin/bash", "/root/deploy.sh"]

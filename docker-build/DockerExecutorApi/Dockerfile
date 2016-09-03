@@ -18,4 +18,4 @@ COPY src/DockerExecutorApi /dotnetapp
 RUN ["dotnet", "restore"]
 RUN ["dotnet", "build"]
 
-ENTRYPOINT ["dotnet", "run"]
+ENTRYPOINT ["dotnet", "run", "--HostStateDirectory", "/var/lib/dtfa/state"]

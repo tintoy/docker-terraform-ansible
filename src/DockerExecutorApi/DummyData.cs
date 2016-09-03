@@ -20,7 +20,7 @@ namespace DD.Research.DockerExecutor.Api
             {
                 Id = 1,
                 Name = "Web application (multi-cloud)",
-                ImageName = "web-app-multi-cloud",
+                ImageName = "tintoy/tfa-multicloud-template:stable",
                 Parameters =
                 {
                     new TemplateParameterModel

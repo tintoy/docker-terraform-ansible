@@ -17,6 +17,6 @@ namespace DD.Research.DockerExecutor.Api.Models
         ///     The Id of the template to deploy.
         /// </summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
-        public Dictionary<string, object> Parameters { get; } = new Dictionary<string, object>();
+        public Dictionary<string, string> Parameters { get; } = new Dictionary<string, string>();
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json.Linq;
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace DD.Research.DockerExecutor.Api.Controllers
 {
@@ -39,44 +40,41 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         ///     The deployment result.
         /// </returns>
         [HttpPost("")]
-        public IActionResult DeployTemplate([FromBody] DeploymentModel model)
+        public async Task<IActionResult> DeployTemplate([FromBody] DeploymentModel model)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            return Ok(new Models.DeploymentResultModel
+            TemplateModel template = DummyData.DeploymentTemplates.FirstOrDefault(
+                deploymentTemplate => deploymentTemplate.Id == model.TemplateId
+            );
+            if (template == null)
             {
-                Success = true,
-                Log = "Deployment log goes here.\nIt is multi-line.",
-                Outputs = JObject.Parse(@"
+                return NotFound(new
+                {
+                    ErrorCode = "TemplateNotFound",
+                    Message = $"Template {model.TemplateId} not found."
+                });
+            }
+
+            Executor.Result deploymentResult = await _executor.ExecuteAsync(template.ImageName, model.Parameters);
+
+            DeploymentResultModel resultModel = new DeploymentResultModel
+            {
+                Success = deploymentResult.Succeeded,
+                Logs =
+                {
+                    new DeploymentLogModel
                     {
-                        ""aws_hosts"": {
-                            ""sensitive"": false,
-                            ""type"": ""list"",
-                            ""value"": [
-                                ""demo-aws-web-01"",
-                                ""demo-aws-web-02""
-                            ]
-                        },
-                        ""aws_private_ips"": {
-                            ""sensitive"": false,
-                            ""type"": ""list"",
-                            ""value"": [
-                                ""172.31.40.126"",
-                                ""172.31.38.177""
-                            ]
-                        },
-                        ""aws_public_ips"": {
-                            ""sensitive"": false,
-                            ""type"": ""list"",
-                            ""value"": [
-                                """",
-                                """"
-                            ]
-                        }
+                        LogFile = "Container.log",
+                        LogContent = deploymentResult.ContainerLog
                     }
-                ")
-            });
+                },
+                Outputs = deploymentResult.Outputs
+            };
+            resultModel.Logs.AddRange(deploymentResult.DeploymentLogs);
+
+            return Ok(resultModel);
         }
     }
 }

@@ -2,28 +2,23 @@
 
 set -e
 
-if [ ! -e deploy.tf ]; then
-    echo "'/root/deploy.tf' is not present; deploy.sh cannot be run directly from this container image; create an image that includes a Terraform configuration file called deploy.tf."
+DATA_DIR=/root
+STATE_DIR=$DATA_DIR/state
+LOG_DIR=$STATE_DIR/logs
+if [ ! -d $LOG_DIR ]; then
+    mkdir -p $LOG_DIR
+fi
+
+TF_STATE_FILE=$STATE_DIR/terraform.tfstate
+
+echo "State directory ('$STATE_DIR'):"
+ls -lR $STATE_DIR
+
+if [ ! -f "$DATA_DIR/deploy.tf" ]; then
+    echo "'$DATA_DIR/deploy.tf' is not present; this image cannot be run directly; create an image based on it that includes a Terraform configuration file called deploy.tf."
 
     exit 1
 fi
-
-if [ -e pre_deploy.sh ]; then
-    echo "Executing pre-deployment hook '/root/pre_deploy.sh'..."
-    sh pre_deploy.sh
-fi
-
-if [ ! -e deploy.yml ]; then
-    echo "'/root/deploy.yml' is not present; deploy.sh cannot be run directly from this container image; create an image that includes an Ansible playbook called deploy.yml."
-
-    exit 1
-fi
-
-if [ -e post_deploy.sh ]; then
-    echo "Executing post-deployment hook '/root/post_deploy.sh'..."
-    sh after_deploy.sh
-fi
-
 if [ ! -z $TF_VARIABLES_FILE ]; then
     if [ ! -f $TF_VARIABLES_FILE ]; then
         echo "Terraform variable override '$TF_VARIABLES_FILE' specified, but not found."
@@ -32,20 +27,44 @@ if [ ! -z $TF_VARIABLES_FILE ]; then
     fi
 
     echo "Terraform variable override '$TF_VARIABLES_FILE' detected; will use variables from this file."
-    cp $TF_VARIABLES_FILE ./terraform.tfvars
+    TF_VARIABLE_OVERRIDE="-var-file=$TF_VARIABLES_FILE"
+fi
+
+if [ ! -f "$DATA_DIR/deploy.yml" ]; then
+    echo "'$DATA_DIR/deploy.yml' is not present; this image cannot be run directly; create an image based on it that includes an Ansible playbook called deploy.yml."
+
+    exit 1
+fi
+
+# Pre-deploy hook
+if [ -f "$DATA_DIR/pre_deploy.sh" ]; then
+    echo "Executing pre-deployment hook '$DATA_DIR/pre_deploy.sh' (log = '$LOG_DIR/pre_deploy.log')..."
+    bash pre_deploy.sh &> $LOG_DIR/pre_deploy.log
 fi
 
 # User infrastructure.
-echo "Applying Terraform configuration..."
-terraform apply -no-color -parallelism=${MAX_TF_PARALLELISM:-10} -state=./state/terraform.tfstate
+pushd $DATA_DIR
 
-echo "Dumping Terraform outputs to './state/terraform.output.json'..."
-terraform output -json -state=./state/terraform.tfstate > ./state/terraform.output.json
+echo "Applying Terraform configuration (log = '$LOG_DIR/terraform-apply.log')..."
+terraform apply -no-color -parallelism=${MAX_TF_PARALLELISM:-10} -state=$TF_STATE_FILE $TF_VARIABLE_OVERRIDE &> "$LOG_DIR/terraform-apply.log"
+
+echo "Dumping Terraform outputs to '$STATE_DIR/terraform.output.json'..."
+terraform output -json -state=$TF_STATE_FILE &> $STATE_DIR/terraform.output.json
+
+popd # $DATA_DIR
 
 # Wait for deployed hosts to come up. 
-echo "Waiting for hosts to become available..."
-ansible-playbook playbooks/wait-for-hosts.yml
+echo "Waiting for hosts to become available (log = '$LOG_DIR/ansible-wait-for-hosts.log')..."
+ansible-playbook $DATA_DIR/playbooks/wait-for-hosts.yml &> $LOG_DIR/ansible-wait-for-hosts.log
 
 # User deployment.
-echo "Performing Ansible deployment..."
-ansible-playbook deploy.yml
+echo "Performing Ansible deployment (log = '$LOG_DIR/ansible-deploy.log')..."
+ansible-playbook $DATA_DIR/deploy.yml &> $LOG_DIR/ansible-deploy.log
+
+# Post-deploy hook
+if [ -f "$DATA_DIR/post_deploy.sh" ]; then
+    echo "Executing post-deployment hook '$DATA_DIR/post_deploy.sh' (log = '$LOG_DIR/post_deploy.log')..."
+    bash $DATA_DIR/after_deploy.sh &> $LOG_DIR/post_deploy.log
+fi
+
+echo "Deployment complete!"
