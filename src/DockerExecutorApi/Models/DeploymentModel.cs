@@ -1,22 +1,38 @@
-using Newtonsoft.Json;
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace DD.Research.DockerExecutor.Api.Models
 {
     /// <summary>
-    ///     The model for initiating a deployment.
+    ///     The represents a deployment.
     /// </summary>
     public class DeploymentModel
     {
         /// <summary>
-        ///     The Id of the template to deploy.
+        ///     The deployment Id.
         /// </summary>
-        public int TemplateId { get; set; }
+        public string Id { get; set; }
 
         /// <summary>
-        ///     The Id of the template to deploy.
+        ///     The current deployment state.
+        /// </summary>
+        public DeploymentState State { get; set; }
+
+        /// <summary>
+        ///     Is the deployment complete?
+        /// </summary>
+        public bool IsComplete => State == DeploymentState.Successful || State == DeploymentState.Failed;
+
+        /// <summary>
+        ///     The deployment logs (once the deployment is complete).
         /// </summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
-        public Dictionary<string, string> Parameters { get; } = new Dictionary<string, string>();
+        public List<DeploymentLogModel> Logs { get; } = new List<DeploymentLogModel>();
+        
+        /// <summary>
+        ///     The deployment outputs (once the deployment is complete).
+        /// </summary>
+        public JObject Outputs { get; set; }
     }
 }

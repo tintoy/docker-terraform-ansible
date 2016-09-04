@@ -6,37 +6,40 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 
 namespace DD.Research.DockerExecutor.Api
 {
-    using System.Linq;
     using Models;
+
+    using FiltersDictionary = Dictionary<string, IDictionary<string, bool>>;
+    using FilterDictionary = Dictionary<string, bool>;
 
     /// <summary>
     ///     The executor for deployment jobs via Docker.
     /// </summary>
-    public class Executor
+    public class Deployer
     {
         /// <summary>
-        ///     Create a new <see cref="Executor"/>.
+        ///     Create a new <see cref="Deployer"/>.
         /// </summary>
-        /// <param name="executorOptions">
-        ///     The executor options.
+        /// <param name="deployerOptions">
+        ///     The deployer options.
         /// </summary>
         /// <param name="logger">
-        ///     The executor logger.
+        ///     The deployer logger.
         /// </summary>
-        public Executor(IOptions<ExecutorOptions> executorOptions, ILogger<Executor> logger)
+        public Deployer(IOptions<DeployerOptions> deployerOptions, ILogger<Deployer> logger)
         {
-            if (executorOptions == null)
-                throw new ArgumentNullException(nameof(executorOptions));
+            if (deployerOptions == null)
+                throw new ArgumentNullException(nameof(deployerOptions));
 
             if (logger == null)
                 throw new ArgumentNullException(nameof(logger));
 
-            ExecutorOptions options = executorOptions.Value;
+            DeployerOptions options = deployerOptions.Value;
             LocalStateDirectory = new DirectoryInfo(Path.GetFullPath(
                 Path.Combine(Directory.GetCurrentDirectory(), options.LocalStateDirectory)
             ));
@@ -73,6 +76,86 @@ namespace DD.Research.DockerExecutor.Api
         DockerClient Client { get; }
 
         /// <summary>
+        ///     Get all deployments.
+        /// </summary>
+        /// <returns>
+        ///     A list of deployments.
+        /// </returns>
+        public async Task<DeploymentModel[]> GetDeploymentsAsync()
+        {
+            List<DeploymentModel> deployments = new List<DeploymentModel>();
+
+            Log.LogInformation("Retrieving all deployments...");
+
+            // Find all containers that have a "deployment.id" label.
+            ContainersListParameters listParameters = new ContainersListParameters
+            {
+                All = true,
+                Filters = new FiltersDictionary
+                {
+                    ["label"] = new FilterDictionary
+                    {
+                        ["deployment.id"] = true
+                    }
+                }
+            };
+            IList<ContainerListResponse> containerListings = await Client.Containers.ListContainersAsync(listParameters);
+
+            deployments.AddRange(containerListings.Select(
+                containerListing => ToDeploymentModel(containerListing)
+            ));
+            
+            Log.LogInformation("Retrieved {DeploymentCount} deployments.", deployments.Count);
+
+            return deployments.ToArray();
+        }
+
+        /// <summary>
+        ///     Get a specific deployment by Id.
+        /// </summary>
+        /// <param name="deploymentId">
+        ///     The deployment Id.
+        /// </param>
+        /// <returns>
+        ///     The deployment, or <c>null</c> if one was not found with the specified Id.
+        /// </returns>
+        public async Task<DeploymentModel> GetDeploymentAsync(string deploymentId)
+        {
+            if (String.IsNullOrWhiteSpace(deploymentId))
+                throw new ArgumentException("Invalid deployment Id.", nameof(deploymentId));
+
+            Log.LogInformation("Retrieving deployment '{DeploymentId}'...", deploymentId);
+
+            // Find all containers that have a "deployment.id" label.
+            ContainersListParameters listParameters = new ContainersListParameters
+            {
+                All = true,
+                Filters = new FiltersDictionary
+                {
+                    ["label"] = new FilterDictionary
+                    {
+                        ["deployment.id=" + deploymentId] = true
+                    }
+                }
+            };
+            IList<ContainerListResponse> containerListings = await Client.Containers.ListContainersAsync(listParameters);
+
+            ContainerListResponse matchingContainer = containerListings.FirstOrDefault();
+            if (matchingContainer == null)
+            {
+                Log.LogInformation("Deployment '{DeploymentId}' not found.", deploymentId);
+
+                return null;
+            }
+            
+            DeploymentModel deployment = ToDeploymentModel(matchingContainer);
+
+            Log.LogInformation("Retrieved deployment '{DeploymentId}'.", deploymentId);
+
+            return deployment;
+        }
+
+        /// <summary>
         ///     Execute a deployment.
         /// </summary>
         /// <param name="deploymentId">
@@ -88,9 +171,11 @@ namespace DD.Research.DockerExecutor.Api
         ///     The state directory to be mounted in the deployment container.
         /// </param>
         /// <returns>
-        ///     <c>true</c>, if the deployment was successful; otherwise, <c>false</c>.
+        ///     <c>true</c>, if the deployment was started; otherwise, <c>false</c>.
+        /// 
+        ///     TODO: Consider returning an enum instead.
         /// </returns>
-        public async Task<Result> ExecuteAsync(string deploymentId, string templateImageTag, IDictionary<string, string> templateParameters)
+        public async Task<bool> DeployAsync(string deploymentId, string templateImageTag, IDictionary<string, string> templateParameters)
         {
             if (String.IsNullOrWhiteSpace(templateImageTag))
                 throw new ArgumentException("Must supply a valid template image name.", nameof(templateImageTag));
@@ -115,7 +200,7 @@ namespace DD.Research.DockerExecutor.Api
                 {
                     Log.LogError("Image not found: '{TemplateImageName}'.", templateImageTag);
 
-                    return Result.Failed();
+                    return false;
                 }
 
                 Log.LogInformation("Template image Id is '{TemplateImageId}'.", targetImage.ID);
@@ -158,38 +243,13 @@ namespace DD.Research.DockerExecutor.Api
                 await Client.Containers.StartContainerAsync(containerId, new HostConfig());
                 Log.LogInformation("Started container: '{ContainerId}'.", containerId);
 
-                Log.LogInformation("Waiting for container termination...");
-                bool terminated = await Client.Containers.WaitForContainerTerminationAsync(containerId);
-                if (!terminated)
-                {
-                    Log.LogError("Timed out waiting for deployment process '{DeploymentId}' to terminate.", deploymentId);
-
-                    return Result.Failed();
-                }
-
-                Log.LogInformation("Reading logs for container {ContainerId}.", containerId);
-                string deploymentLog = await Client.Containers.GetEntireContainerLogAsync(containerId);
-                Log.LogInformation("Log for container {ContainerId}:\n{ContainerLogEntries}", containerId, deploymentLog);
-
-                Log.LogInformation("Destroying container '{ContainerId}'...", containerId);
-                await Client.Containers.RemoveContainerAsync(containerId, new ContainerRemoveParameters
-                {
-                    Force = true
-                });
-                Log.LogInformation("Destroyed container '{ContainerId}'...", containerId);
-
-                return new Result(
-                    succeeded: true,
-                    outputs: ReadOutputs(deploymentLocalStateDirectory),
-                    containerLog: deploymentLog,
-                    deploymentLogs: ReadDeploymentLogs(deploymentLocalStateDirectory)
-                );
+                return true;
             }
             catch (Exception unexpectedError)
             {
                 Log.LogError("Unexpected error while executing deployment '{DeploymentId}': {Error}", deploymentId, unexpectedError);
 
-                return Result.Failed();
+                return false;
             }
         }
 
@@ -401,12 +461,69 @@ namespace DD.Research.DockerExecutor.Api
         }
 
         /// <summary>
-        ///     Represents the result of an <see cref="Executor"/> deployment run.
+        ///     Convert a <see cref="ContainerListResponse">container listing</see> to a <see cref="DeploymentModel"/>.
+        /// </summary>
+        /// <param name="containerListing">
+        ///     The <see cref="ContainerListResponse">container listing</see> to convert.
+        /// </param>
+        /// <returns>
+        ///     The converted <see cref="DeploymentModel"/>.
+        /// </returns>
+        DeploymentModel ToDeploymentModel(ContainerListResponse containerListing)
+        {
+            if (containerListing == null)
+                throw new ArgumentNullException(nameof(containerListing));
+
+            string deploymentId = containerListing.Labels["deployment.id"];
+            DirectoryInfo deploymentStateDirectory = GetLocalStateDirectory(deploymentId);
+
+            DeploymentModel deployment = new DeploymentModel
+            {
+                Id = deploymentId
+            };
+
+            switch (containerListing.State)
+            {
+                case "running":
+                {
+                    deployment.State = DeploymentState.Running;
+
+                    break;
+                }
+                case "exited":
+                {
+                    if (containerListing.Status == "Exit 0")
+                        deployment.State = DeploymentState.Successful;
+                    else
+                        deployment.State = DeploymentState.Failed;
+
+                    deployment.Logs.AddRange(
+                        ReadDeploymentLogs(deploymentStateDirectory)
+                    );
+                    deployment.Outputs = ReadOutputs(deploymentStateDirectory);
+
+                    break;
+                }
+                default:
+                {
+                    Log.LogInformation("Unexpected container state '{State}'.", containerListing.State);
+
+                    deployment.State = DeploymentState.Unknown;
+
+                    break;
+                }
+            }
+
+            return deployment;
+        }
+
+        /// <summary>
+        ///     Represents the result of an <see cref="Deployer"/> deployment run.
         /// </summary>
         public sealed class Result
         {
             /// <summary>
-            ///     Create a new <see cref="Executor"/> <see cref="Result"/>.
+            ///     Create a new <see cref="Deployer"/> <see cref="Result"/>.
             /// </summary>
             /// <param name="succeeded">
             ///     Did execution succeed?

@@ -17,7 +17,7 @@ namespace DD.Research.DockerExecutor.Api
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddOptions();
-            services.Configure<ExecutorOptions>(Configuration);
+            services.Configure<DeployerOptions>(Configuration);
 
             services.AddLogging();
             services.AddMvc()
@@ -29,7 +29,7 @@ namespace DD.Research.DockerExecutor.Api
 					);
 				});
 
-            services.AddTransient<Executor>();
+            services.AddTransient<Deployer>();
         }
 
         public void Configure(IApplicationBuilder app, ILoggerFactory loggerFactory)

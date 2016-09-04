@@ -15,22 +15,36 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         : ControllerBase
     {
         /// <summary>
-        ///     The deployment executor.
+        ///     The deployment service.
         /// </summary>
-        readonly Executor _executor;
+        readonly Deployer _deployer;
 
         /// <summary>
         ///     Create a new <see cref="DeploymentsController"/>.
         /// </summary>
-        /// <param name="executor">
-        ///     The deployment executor.
+        /// <param name="deployer">
+        ///     The deployment service.
         /// </param>
-        public DeploymentsController(Executor executor)
+        public DeploymentsController(Deployer deployer)
         {
-            if (executor == null)
-                throw new ArgumentNullException(nameof(executor));
+            if (deployer == null)
+                throw new ArgumentNullException(nameof(deployer));
 
-            _executor = executor;
+            _deployer = deployer;
+        }
+
+        /// <summary>
+        ///     List all deployments.
+        /// </summary>
+        /// <returns>
+        ///     A list of deployments.
+        /// </returns>
+        [HttpGet("")]
+        public async Task<IActionResult> ListDeployments()
+        {
+            DeploymentModel[] deployments = await _deployer.GetDeploymentsAsync();
+
+            return Ok(deployments);
         }
 
         /// <summary>
@@ -40,7 +54,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         ///     The deployment result.
         /// </returns>
         [HttpPost("")]
-        public async Task<IActionResult> DeployTemplate([FromBody] DeploymentModel model)
+        public async Task<IActionResult> DeployTemplate([FromBody] CreateDeploymentModel model)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -58,25 +72,13 @@ namespace DD.Research.DockerExecutor.Api.Controllers
             }
 
             string deploymentId = HttpContext.TraceIdentifier;
-            Executor.Result deploymentResult = await _executor.ExecuteAsync(deploymentId, template.ImageName, model.Parameters);
+            bool started = await _deployer.DeployAsync(deploymentId, template.ImageName, model.Parameters);
 
-            DeploymentResultModel resultModel = new DeploymentResultModel
+            return Ok(new
             {
-                Success = deploymentResult.Succeeded,
-                DeploymentId = deploymentId,
-                Logs =
-                {
-                    new DeploymentLogModel
-                    {
-                        LogFile = "Container.log",
-                        LogContent = deploymentResult.ContainerLog
-                    }
-                },
-                Outputs = deploymentResult.Outputs
-            };
-            resultModel.Logs.AddRange(deploymentResult.DeploymentLogs);
-
-            return Ok(resultModel);
+                Started = started,
+                DeploymentId = deploymentId
+            });
         }
     }
 }
