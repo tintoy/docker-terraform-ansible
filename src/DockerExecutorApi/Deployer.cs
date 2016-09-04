@@ -43,9 +43,15 @@ namespace DD.Research.DockerExecutor.Api
             LocalStateDirectory = new DirectoryInfo(Path.GetFullPath(
                 Path.Combine(Directory.GetCurrentDirectory(), options.LocalStateDirectory)
             ));
+            logger.LogInformation("Final value for LocalStateDirectory is '{LocalStateDirectory}'.",
+                LocalStateDirectory.FullName
+            );
             HostStateDirectory = new DirectoryInfo(Path.GetFullPath(
                 Path.Combine(Directory.GetCurrentDirectory(), options.HostStateDirectory)
             ));
+            logger.LogInformation("Final value for HostStateDirectory is '{HostStateDirectory}'.",
+                HostStateDirectory.FullName
+            );
 
             Log = logger;
 
@@ -320,14 +326,24 @@ namespace DD.Research.DockerExecutor.Api
 
             if (variablesFile.Exists)
                 variablesFile.Delete();
-            else if (!stateDirectory.Exists)
-                stateDirectory.Create();
+            else if (!variablesFile.Directory.Exists)
+                variablesFile.Directory.Create();
 
             using (StreamWriter writer = variablesFile.CreateText())
             {
                 JsonSerializer serializer = new JsonSerializer();
                 serializer.Serialize(writer, variables);
             }
+
+            File.WriteAllText(
+                Path.Combine(variablesFile.Directory.FullName, "TEST1.TXT"),
+                "TEST 1!"
+            );
+
+            File.WriteAllText(
+                Path.Combine(stateDirectory.FullName, "TEST1.TXT"),
+                "TEST 1!"
+            );
 
             Log.LogInformation("Wrote {TemplateParameterCount} parameters to '{TerraformVariableFile}'.",
                 variables.Count,
@@ -447,7 +463,7 @@ namespace DD.Research.DockerExecutor.Api
 
             foreach (FileInfo logFile in logFilesByTimestamp)
             {
-                Log.LogInformation("Reading deployment log 'LogFile'...", logFile.FullName);
+                Log.LogInformation("Reading deployment log '{LogFile}'...", logFile.FullName);
                 using (StreamReader logReader = logFile.OpenText())
                 {
                     yield return new DeploymentLogModel
@@ -456,7 +472,7 @@ namespace DD.Research.DockerExecutor.Api
                         LogContent = logReader.ReadToEnd()
                     };
                 }
-                Log.LogInformation("Read deployment log 'LogFile'.", logFile.FullName);
+                Log.LogInformation("Read deployment log '{LogFile}'.", logFile.FullName);
             }
         }
 
@@ -479,7 +495,8 @@ namespace DD.Research.DockerExecutor.Api
 
             DeploymentModel deployment = new DeploymentModel
             {
-                Id = deploymentId
+                Id = deploymentId,
+                ContainerId = containerListing.ID
             };
 
             switch (containerListing.State)
@@ -492,7 +509,7 @@ namespace DD.Research.DockerExecutor.Api
                 }
                 case "exited":
                 {
-                    if (containerListing.Status == "Exit 0")
+                    if (containerListing.Status != null && containerListing.Status.StartsWith("Exited (0)"))
                         deployment.State = DeploymentState.Successful;
                     else
                         deployment.State = DeploymentState.Failed;

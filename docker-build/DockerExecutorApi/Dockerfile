@@ -7,7 +7,6 @@ MAINTAINER Adam Friedman <tintoy@tintoy.io>
 RUN mkdir -p /var/lib/tfa/state
 VOLUME /var/lib/tfa/state
 
-VOLUME /var/run/docker.sock
 EXPOSE 5050
 
 RUN mkdir -p /dotnetapp
@@ -18,4 +17,6 @@ COPY src/DockerExecutorApi /dotnetapp
 RUN ["dotnet", "restore"]
 RUN ["dotnet", "build"]
 
-ENTRYPOINT ["dotnet", "run", "--HostStateDirectory", "/var/lib/dtfa/state"]
+ENV DOOZER_LocalStateDirectory=/var/lib/tfa/state
+
+ENTRYPOINT ["dotnet", "run"]

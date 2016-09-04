@@ -48,6 +48,33 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         }
 
         /// <summary>
+        ///     Get a specific deployment.
+        /// </summary>
+        /// <param name="deploymentId">
+        ///     The deployment Id.
+        /// </param>
+        /// <returns>
+        ///     The deployment.
+        /// </returns>
+        [HttpGet("{deploymentId}")]
+        public async Task<IActionResult> GetDeployment(string deploymentId)
+        {
+            DeploymentModel deployment = await _deployer.GetDeploymentAsync(deploymentId);
+            if (deployment == null)
+            {
+                Response.Headers.Add("ErrorCode", "DeploymentNotFound");
+
+                return NotFound(new
+                {
+                    ErrorCode = "DeploymentNotFound",
+                    Message = $"No deployment was found with Id '{deploymentId}'."
+                });
+            }
+
+            return Ok(deployment);
+        }
+
+        /// <summary>
         ///     Deploy a template.
         /// </summary>
         /// <returns>

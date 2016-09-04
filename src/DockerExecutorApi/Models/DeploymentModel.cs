@@ -15,6 +15,11 @@ namespace DD.Research.DockerExecutor.Api.Models
         public string Id { get; set; }
 
         /// <summary>
+        ///     The Id of the deployment's container.
+        /// </summary>
+        public string ContainerId { get; set; }
+
+        /// <summary>
         ///     The current deployment state.
         /// </summary>
         public DeploymentState State { get; set; }

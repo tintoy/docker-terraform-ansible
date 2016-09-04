@@ -36,6 +36,14 @@ namespace DD.Research.DockerExecutor.Api
         {
             loggerFactory.AddConsole(LogLevel.Trace, includeScopes: true);
 
+            ILogger logger = loggerFactory.CreateLogger("DockerExecutorApi");
+            logger.LogInformation("LocalStateDirectory: '{LocalStateDirectory}'.",
+                Configuration["LocalStateDirectory"]
+            );
+            logger.LogInformation("HostStateDirectory: '{HostStateDirectory}'.",
+                Configuration["HostStateDirectory"]
+            );
+
             app.UseMvc();
         }
 
@@ -45,7 +53,7 @@ namespace DD.Research.DockerExecutor.Api
                 new SynchronizationContext()
             );
 
-            Configuration = LoadConfiguration(commandLineArguments);
+            Configuration = LoadConfiguration();
 
             IWebHost host = new WebHostBuilder()
                 .UseConfiguration(Configuration)
@@ -60,12 +68,12 @@ namespace DD.Research.DockerExecutor.Api
             }
         }
 
-        static IConfiguration LoadConfiguration(string[] commandLineArguments)
+        static IConfiguration LoadConfiguration()
         {
             return new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
-                .AddCommandLine(commandLineArguments)
+                .AddEnvironmentVariables("DOOZER_")
                 .Build();
         }
     }
