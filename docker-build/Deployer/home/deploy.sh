@@ -46,10 +46,13 @@ fi
 pushd $DATA_DIR
 
 echo "Applying Terraform configuration (log = '$LOG_DIR/terraform-apply.log')..."
-terraform apply -no-color -parallelism=${MAX_TF_PARALLELISM:-10} -state=$TF_STATE_FILE $TF_VARIABLE_OVERRIDE &> "$LOG_DIR/terraform-apply.log"
+terraform apply -no-color -input=false -parallelism=${MAX_TF_PARALLELISM:-10} -state=$TF_STATE_FILE $TF_VARIABLE_OVERRIDE &> "$LOG_DIR/terraform-apply.log"
 
 echo "Dumping Terraform outputs to '$STATE_DIR/terraform.output.json'..."
 terraform output -json -state=$TF_STATE_FILE &> $STATE_DIR/terraform.output.json
+
+echo "Refreshing Terraform configuration (log = '$LOG_DIR/terraform-refresh.log')..."
+terraform refresh -no-color -input=false -parallelism=${MAX_TF_PARALLELISM:-10} -state=$TF_STATE_FILE $TF_VARIABLE_OVERRIDE &> "$LOG_DIR/terraform-refresh.log"
 
 popd # $DATA_DIR
 
