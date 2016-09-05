@@ -201,20 +201,10 @@ namespace DD.Research.DockerExecutor.Api
                 
                 WriteTemplateParameters(templateParameters, deploymentLocalStateDirectory);
 
-                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(templateImageTag);
-                if (targetImage == null)
-                {
-                    Log.LogError("Image not found: '{TemplateImageName}'.", templateImageTag);
-
-                    return false;
-                }
-
-                Log.LogInformation("Template image Id is '{TemplateImageId}'.", targetImage.ID);
-
                 CreateContainerParameters createParameters = new CreateContainerParameters
                 {
                     Name = "deploy-" + deploymentId,
-                    Image = targetImage.ID,
+                    Image = templateImageTag,
                     AttachStdout = true,
                     AttachStderr = true,
                     HostConfig = new HostConfig
@@ -308,21 +298,11 @@ namespace DD.Research.DockerExecutor.Api
 
                 Log.LogInformation("Local state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentLocalStateDirectory.FullName);
                 Log.LogInformation("Host state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentHostStateDirectory.FullName);
-                
-                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(destroyerImageTag);
-                if (targetImage == null)
-                {
-                    Log.LogError("Image not found: '{TemplateImageName}'.", destroyerImageTag);
-
-                    return false;
-                }
-
-                Log.LogInformation("Template image Id is '{TemplateImageId}'.", targetImage.ID);
 
                 CreateContainerParameters createParameters = new CreateContainerParameters
                 {
                     Name = "destroy-" + deploymentId,
-                    Image = targetImage.ID,
+                    Image = destroyerImageTag,
                     AttachStdout = true,
                     AttachStderr = true,
                     Tty = false,
