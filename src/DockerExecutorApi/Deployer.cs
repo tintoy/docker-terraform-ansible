@@ -146,15 +146,18 @@ namespace DD.Research.DockerExecutor.Api
             };
             IList<ContainerListResponse> containerListings = await Client.Containers.ListContainersAsync(listParameters);
 
-            ContainerListResponse matchingContainer = containerListings.FirstOrDefault();
-            if (matchingContainer == null)
+            ContainerListResponse newestMatchingContainer =
+                containerListings
+                    .OrderByDescending(container => container.Created)
+                    .FirstOrDefault();
+            if (newestMatchingContainer == null)
             {
                 Log.LogInformation("Deployment '{DeploymentId}' not found.", deploymentId);
 
                 return null;
             }
             
-            DeploymentModel deployment = ToDeploymentModel(matchingContainer);
+            DeploymentModel deployment = ToDeploymentModel(newestMatchingContainer);
 
             Log.LogInformation("Retrieved deployment '{DeploymentId}'.", deploymentId);
 
@@ -172,9 +175,6 @@ namespace DD.Research.DockerExecutor.Api
         /// </param>
         /// <param name="templateParameters">
         ///     A dictionary containing global template parameters to be written to the state directory.
-        /// </param>
-        /// <param name="stateDirectory">
-        ///     The state directory to be mounted in the deployment container.
         /// </param>
         /// <returns>
         ///     <c>true</c>, if the deployment was started; otherwise, <c>false</c>.
@@ -237,7 +237,9 @@ namespace DD.Research.DockerExecutor.Api
                     {
                         ["task.type"] = "deployment",
                         ["deployment.id"] = deploymentId,
-                        ["deployment.image.tag"] = templateImageTag
+                        ["deployment.action"] = "Deploy",
+                        ["deployment.image.deploy.tag"] = templateImageTag,
+                        ["deployment.image.destroy.tag"] = GetDestroyerImageTag(templateImageTag)
                     }
                 };
 
@@ -254,6 +256,114 @@ namespace DD.Research.DockerExecutor.Api
             catch (Exception unexpectedError)
             {
                 Log.LogError("Unexpected error while executing deployment '{DeploymentId}': {Error}", deploymentId, unexpectedError);
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///     Destroy a deployment.
+        /// </summary>
+        /// <param name="deploymentId">
+        ///     The deployment Id.
+        /// </param>
+        /// <returns>
+        ///     <c>true</c>, if the deployment was started; otherwise, <c>false</c>.
+        /// 
+        ///     TODO: Consider returning an enum instead.
+        /// </returns>
+        public async Task<bool> DestroyAsync(string deploymentId)
+        {
+            if (String.IsNullOrWhiteSpace(deploymentId))
+                throw new ArgumentException("Must supply a valid deployment Id.", nameof(deploymentId));
+
+            Log.LogInformation("Destroy deployment '{DeploymentId}'.", deploymentId);
+
+            try
+            {
+                IList<ContainerListResponse> matchingContainers = await Client.Containers.ListContainersAsync(new ContainersListParameters
+                {
+                    All = true,
+                    Filters = new FiltersDictionary
+                    {
+                        ["label"] = new FilterDictionary
+                        {
+                            ["deployment.id=" + deploymentId] = true
+                        }
+                    }
+                });
+                if (matchingContainers.Count == 0)
+                {
+                    Log.LogError("Deployment '{DeploymentId}' not found.");
+
+                    return false;
+                }
+
+                string destroyerImageTag = matchingContainers[0].Labels["deployment.image.destroy.tag"];
+
+                Log.LogInformation("Starting destruction of deployment '{DeploymentId}' using image '{DestroyerImageTag}'...", deploymentId, destroyerImageTag);
+
+                DirectoryInfo deploymentLocalStateDirectory = GetLocalStateDirectory(deploymentId);
+                DirectoryInfo deploymentHostStateDirectory = GetHostStateDirectory(deploymentId);
+
+                Log.LogInformation("Local state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentLocalStateDirectory.FullName);
+                Log.LogInformation("Host state directory for deployment '{DeploymentId}' is '{LocalStateDirectory}'.", deploymentId, deploymentHostStateDirectory.FullName);
+                
+                ImagesListResponse targetImage = await Client.Images.FindImageByTagNameAsync(destroyerImageTag);
+                if (targetImage == null)
+                {
+                    Log.LogError("Image not found: '{TemplateImageName}'.", destroyerImageTag);
+
+                    return false;
+                }
+
+                Log.LogInformation("Template image Id is '{TemplateImageId}'.", targetImage.ID);
+
+                CreateContainerParameters createParameters = new CreateContainerParameters
+                {
+                    Name = "destroy-" + deploymentId,
+                    Image = targetImage.ID,
+                    AttachStdout = true,
+                    AttachStderr = true,
+                    Tty = false,
+                    HostConfig = new HostConfig
+                    {
+                        Binds = new List<string>
+                        {
+                            $"{deploymentHostStateDirectory.FullName}:/root/state"
+                        },
+                        LogConfig = new LogConfig
+                        {
+                            Type = "json-file",
+                            Config = new Dictionary<string, string>()
+                        }
+                    },
+                    Env = new List<string>
+                    {
+                        "ANSIBLE_NOCOLOR=1" // Disable coloured output because escape sequences look weird in the log.
+                    },
+                    Labels = new Dictionary<string, string>
+                    {
+                        ["task.type"] = "deployment",
+                        ["deployment.id"] = deploymentId,
+                        ["deployment.action"] = "Destroy",
+                        ["deployment.image.destroy.tag"] = destroyerImageTag
+                    }
+                };
+
+                CreateContainerResponse newContainer = await Client.Containers.CreateContainerAsync(createParameters);
+
+                string containerId = newContainer.ID;
+                Log.LogInformation("Created container '{ContainerId}'.", containerId);
+
+                await Client.Containers.StartContainerAsync(containerId, new HostConfig());
+                Log.LogInformation("Started container: '{ContainerId}'.", containerId);
+
+                return true;
+            }
+            catch (Exception unexpectedError)
+            {
+                Log.LogError("Unexpected error while destroying deployment '{DeploymentId}': {Error}", deploymentId, unexpectedError);
 
                 return false;
             }
@@ -334,16 +444,6 @@ namespace DD.Research.DockerExecutor.Api
                 JsonSerializer serializer = new JsonSerializer();
                 serializer.Serialize(writer, variables);
             }
-
-            File.WriteAllText(
-                Path.Combine(variablesFile.Directory.FullName, "TEST1.TXT"),
-                "TEST 1!"
-            );
-
-            File.WriteAllText(
-                Path.Combine(stateDirectory.FullName, "TEST1.TXT"),
-                "TEST 1!"
-            );
 
             Log.LogInformation("Wrote {TemplateParameterCount} parameters to '{TerraformVariableFile}'.",
                 variables.Count,
@@ -496,7 +596,8 @@ namespace DD.Research.DockerExecutor.Api
             DeploymentModel deployment = new DeploymentModel
             {
                 Id = deploymentId,
-                ContainerId = containerListing.ID
+                ContainerId = containerListing.ID,
+                Action = containerListing.Labels["deployment.action"]
             };
 
             switch (containerListing.State)
@@ -535,71 +636,36 @@ namespace DD.Research.DockerExecutor.Api
         }
 
         /// <summary>
-        ///     Represents the result of an <see cref="Deployer"/> deployment run.
+        ///     Get the destroyer image tag that corresponds to the specified deployer image tag.
         /// </summary>
-        public sealed class Result
+        /// <param name="deployerImageTag">
+        ///     The deployer image tag.
+        /// </param>
+        /// <returns>
+        ///     The destroyer image tag.
+        /// </returns>
+        static string GetDestroyerImageTag(string deployerImageTag)
         {
-            /// <summary>
-            ///     Create a new <see cref="Deployer"/> <see cref="Result"/>.
-            /// </summary>
-            /// <param name="succeeded">
-            ///     Did execution succeed?
-            /// </param>
-            /// <param name="outputs">
-            ///     JSON representing outputs from Terraform.
-            /// </param>
-            /// <param name="containerLog">
-            ///     The container log.
-            /// </param>
-            public Result(bool succeeded, JObject outputs, string containerLog, IEnumerable<DeploymentLogModel> deploymentLogs)
+            if (String.IsNullOrWhiteSpace(deployerImageTag))
+                throw new ArgumentException("Deployer image tag cannot be null or empty.", nameof(deployerImageTag));
+
+            if (deployerImageTag.Contains(":destroy"))
+                return deployerImageTag;
+
+            string[] tagComponents = deployerImageTag.Split(
+                new char[] {':'},
+                count: 2
+            );
+            if (tagComponents.Length == 2)
             {
-                Succeeded = succeeded;
-                Outputs = outputs ?? new JObject();
-                ContainerLog = containerLog ?? String.Empty;
-                DeploymentLogs = (deploymentLogs ?? Enumerable.Empty<DeploymentLogModel>()).ToArray();
-            }
-
-            /// <summary>
-            ///     Did deployment succeed?
-            /// </summary>
-            public bool Succeeded { get; }
-
-            /// <summary>
-            ///     JSON representing outputs from Terraform.
-            /// </summary>
-            public JObject Outputs { get; }
-
-            /// <summary>
-            ///     The container log.
-            /// </summary>
-            public string ContainerLog { get; }
-
-            /// <summary>
-            ///     The deployment log.
-            /// </summary>
-            public DeploymentLogModel[] DeploymentLogs { get; }
-
-            /// <summary>
-            ///     Create a <see cref="Result"/> representing a failed deployment. 
-            /// </summary>
-            /// <returns>
-            ///     The new <see cref="Result"/>.
-            /// </returns>
-            /// <param name="containerLog">
-            ///     The container log (if any).
-            /// </param>
-            /// <param name="deploymentLogs">
-            ///     The deployment logs (if any).
-            /// </param>
-            public static Result Failed(string containerLog = null, IEnumerable<DeploymentLogModel> deploymentLogs = null)
-            {
-                return new Result(
-                    succeeded: false,
-                    outputs: null,
-                    containerLog: containerLog,
-                    deploymentLogs: deploymentLogs
+                return String.Format(
+                    "{0}:{1}-destroy",
+                    tagComponents[0],
+                    tagComponents[1]
                 );
             }
+            
+            return deployerImageTag + ":destroy";    
         }
     }
 }

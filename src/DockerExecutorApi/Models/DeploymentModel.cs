@@ -25,6 +25,11 @@ namespace DD.Research.DockerExecutor.Api.Models
         public DeploymentState State { get; set; }
 
         /// <summary>
+        ///     The action (Deploy or Destroy).
+        /// </summary>
+        public string Action { get; set; }
+
+        /// <summary>
         ///     Is the deployment complete?
         /// </summary>
         public bool IsComplete => State == DeploymentState.Successful || State == DeploymentState.Failed;

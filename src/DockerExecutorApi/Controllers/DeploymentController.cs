@@ -103,6 +103,26 @@ namespace DD.Research.DockerExecutor.Api.Controllers
 
             return Ok(new
             {
+                Action = "Deploy",
+                Started = started,
+                DeploymentId = deploymentId
+            });
+        }
+
+        /// <summary>
+        ///     Destroy a deployment.
+        /// </summary>
+        /// <returns>
+        ///     The deployment destruction result.
+        /// </returns>
+        [HttpPost("{deploymentId}/destroy")]
+        public async Task<IActionResult> DestroyDeployment(string deploymentId)
+        {
+            bool started = await _deployer.DestroyAsync(deploymentId);
+
+            return Ok(new
+            {
+                Action = "Destroy",
                 Started = started,
                 DeploymentId = deploymentId
             });

@@ -67,4 +67,4 @@ if [ -f "$DATA_DIR/post_deploy.sh" ]; then
     bash $DATA_DIR/after_deploy.sh &> $LOG_DIR/post_deploy.log
 fi
 
-echo "Deployment complete!"
+echo "Deployment complete."
