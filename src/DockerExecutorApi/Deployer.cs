@@ -7,6 +7,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 
@@ -16,12 +18,18 @@ namespace DD.Research.DockerExecutor.Api
 
     using FiltersDictionary = Dictionary<string, IDictionary<string, bool>>;
     using FilterDictionary = Dictionary<string, bool>;
+    using System.Net.Http.Headers;
 
     /// <summary>
     ///     The executor for deployment jobs via Docker.
     /// </summary>
     public class Deployer
     {
+        /// <summary>
+        ///     HTTP client used to determine external (SNAT) IP address.
+        /// </summary>
+        static readonly HttpClient IPConfigClient = new HttpClient();
+
         /// <summary>
         ///     Create a new <see cref="Deployer"/>.
         /// </summary>
@@ -192,6 +200,11 @@ namespace DD.Research.DockerExecutor.Api
             try
             {
                 Log.LogInformation("Starting deployment '{DeploymentId}' using image '{ImageTag}'...", deploymentId, templateImageTag);
+
+                Log.LogInformation("Determining deployer's external IP address...");
+                IPAddress deployerIPAddress = await GetDeployerIPAddressAsync();
+                Log.LogInformation("Deployer's external IP address is '{DeployerIPAddress}'.", deployerIPAddress);
+                templateParameters["deployment_ip"] = deployerIPAddress.ToString();
 
                 DirectoryInfo deploymentLocalStateDirectory = GetLocalStateDirectory(deploymentId);
                 DirectoryInfo deploymentHostStateDirectory = GetHostStateDirectory(deploymentId);
@@ -646,6 +659,35 @@ namespace DD.Research.DockerExecutor.Api
             }
             
             return deployerImageTag + ":destroy";    
+        }
+
+        /// <summary>
+        ///     Determine our public (S/NAT) IP address of the host running the deployer.
+        /// </summary>
+        /// <returns>
+        ///     The IP address.
+        /// </returns>
+        async Task<IPAddress> GetDeployerIPAddressAsync()
+        {
+            string deployerIPAddress;
+            using (HttpResponseMessage response = await IPConfigClient.GetAsync("http://ifconfig.co/json"))
+            {
+                response.EnsureSuccessStatusCode();
+
+                JObject responseJson;
+                using (Stream responseStream = await response.Content.ReadAsStreamAsync())
+                using (StreamReader responseReader = new StreamReader(responseStream))
+                using (JsonTextReader jsonReader = new JsonTextReader(responseReader))
+                {
+                    responseJson = new JsonSerializer().Deserialize<JObject>(jsonReader);
+                }
+
+                deployerIPAddress = responseJson.Value<string>("ip");
+            }
+
+            Log.LogInformation("deployerIPAddress = '{DeployerIPAddress}", deployerIPAddress);
+
+            return IPAddress.Parse(deployerIPAddress);
         }
     }
 }
