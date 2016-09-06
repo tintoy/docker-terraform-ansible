@@ -44,6 +44,7 @@ namespace DD.Research.DockerExecutor.Api
                 Configuration["HostStateDirectory"]
             );
 
+            app.UseDeveloperExceptionPage();
             app.UseMvc();
         }
 

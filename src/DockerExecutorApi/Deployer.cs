@@ -18,7 +18,6 @@ namespace DD.Research.DockerExecutor.Api
 
     using FiltersDictionary = Dictionary<string, IDictionary<string, bool>>;
     using FilterDictionary = Dictionary<string, bool>;
-    using System.Net.Http.Headers;
 
     /// <summary>
     ///     The executor for deployment jobs via Docker.
@@ -48,6 +47,8 @@ namespace DD.Research.DockerExecutor.Api
                 throw new ArgumentNullException(nameof(logger));
 
             DeployerOptions options = deployerOptions.Value;
+            Log = logger;
+
             LocalStateDirectory = new DirectoryInfo(Path.GetFullPath(
                 Path.Combine(Directory.GetCurrentDirectory(), options.LocalStateDirectory)
             ));
@@ -60,8 +61,6 @@ namespace DD.Research.DockerExecutor.Api
             logger.LogInformation("Final value for HostStateDirectory is '{HostStateDirectory}'.",
                 HostStateDirectory.FullName
             );
-
-            Log = logger;
 
             DockerClientConfiguration config = new DockerClientConfiguration(
                 new Uri("unix:///var/run/docker.sock")

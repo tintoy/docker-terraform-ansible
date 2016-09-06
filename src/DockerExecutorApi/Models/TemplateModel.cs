@@ -6,7 +6,7 @@ namespace DD.Research.DockerExecutor.Api.Models
     /// <summary>
     ///     Represents a deployment template.
     /// </summary>
-    public class TemplateModel
+    public class Template
     {
         /// <summary>
         ///     The template Id.
@@ -30,6 +30,6 @@ namespace DD.Research.DockerExecutor.Api.Models
         ///     The template's parameters (if any).
         /// </summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
-        public List<TemplateParameterModel> Parameters { get; } = new List<TemplateParameterModel>();
+        public List<TemplateParameter> Parameters { get; } = new List<TemplateParameter>();
     }
 }

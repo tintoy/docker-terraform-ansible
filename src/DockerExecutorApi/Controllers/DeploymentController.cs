@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -32,6 +33,13 @@ namespace DD.Research.DockerExecutor.Api.Controllers
 
             _deployer = deployer;
         }
+
+        /// <summary>
+        ///     The template manifest file.
+        /// </summary>
+        FileInfo TemplateManifestFile => new FileInfo(Path.Combine(
+            _deployer.LocalStateDirectory.FullName, Templates.TemplateManifestFileName
+        ));
 
         /// <summary>
         ///     List all deployments.
@@ -86,7 +94,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            TemplateModel template = DummyData.DeploymentTemplates.FirstOrDefault(
+            Template template = Templates.Load(TemplateManifestFile).FirstOrDefault(
                 deploymentTemplate => deploymentTemplate.Id == model.TemplateId
             );
             if (template == null)

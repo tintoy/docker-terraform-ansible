@@ -5,7 +5,7 @@ namespace DD.Research.DockerExecutor.Api.Models
     /// <summary>
     ///     Represents a parameter in a deployment template.
     /// </summary>
-    public class TemplateParameterModel
+    public class TemplateParameter
     {
         /// <summary>
         ///     The parameter name.
