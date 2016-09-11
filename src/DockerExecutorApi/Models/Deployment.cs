@@ -7,7 +7,7 @@ namespace DD.Research.DockerExecutor.Api.Models
     /// <summary>
     ///     The represents a deployment.
     /// </summary>
-    public class DeploymentModel
+    public class Deployment
     {
         /// <summary>
         ///     The deployment Id.
@@ -38,7 +38,7 @@ namespace DD.Research.DockerExecutor.Api.Models
         ///     The deployment logs (once the deployment is complete).
         /// </summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
-        public List<DeploymentLogModel> Logs { get; } = new List<DeploymentLogModel>();
+        public List<DeploymentLog> Logs { get; } = new List<DeploymentLog>();
         
         /// <summary>
         ///     The deployment outputs (once the deployment is complete).

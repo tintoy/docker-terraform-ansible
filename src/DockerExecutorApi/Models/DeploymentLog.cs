@@ -5,7 +5,7 @@ namespace DD.Research.DockerExecutor.Api.Models
     /// <summary>
     ///     Represents a log file from a deployment.
     /// </summary>
-    public class DeploymentLogModel
+    public class DeploymentLog
     {
         /// <summary>
         ///     The log file name.

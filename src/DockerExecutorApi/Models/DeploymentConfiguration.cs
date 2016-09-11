@@ -4,9 +4,9 @@ using System.Collections.Generic;
 namespace DD.Research.DockerExecutor.Api.Models
 {
     /// <summary>
-    ///     The model for initiating a deployment.
+    ///     The configuration for a new deployment.
     /// </summary>
-    public class CreateDeploymentModel
+    public class DeploymentConfiguration
     {
         /// <summary>
         ///     The Id of the template to deploy.
@@ -14,7 +14,7 @@ namespace DD.Research.DockerExecutor.Api.Models
         public int TemplateId { get; set; }
 
         /// <summary>
-        ///     The Id of the template to deploy.
+        ///     Values for the template's parameters (if any).
         /// </summary>
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Reuse)]
         public Dictionary<string, string> Parameters { get; } = new Dictionary<string, string>();

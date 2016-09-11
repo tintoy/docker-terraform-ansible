@@ -94,9 +94,9 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     A list of deployments.
         /// </returns>
-        public async Task<DeploymentModel[]> GetDeploymentsAsync()
+        public async Task<Deployment[]> GetDeploymentsAsync()
         {
-            List<DeploymentModel> deployments = new List<DeploymentModel>();
+            List<Deployment> deployments = new List<Deployment>();
 
             Log.LogInformation("Retrieving all deployments...");
 
@@ -132,7 +132,7 @@ namespace DD.Research.DockerExecutor.Api
         /// <returns>
         ///     The deployment, or <c>null</c> if one was not found with the specified Id.
         /// </returns>
-        public async Task<DeploymentModel> GetDeploymentAsync(string deploymentId)
+        public async Task<Deployment> GetDeploymentAsync(string deploymentId)
         {
             if (String.IsNullOrWhiteSpace(deploymentId))
                 throw new ArgumentException("Invalid deployment Id.", nameof(deploymentId));
@@ -164,7 +164,7 @@ namespace DD.Research.DockerExecutor.Api
                 return null;
             }
             
-            DeploymentModel deployment = ToDeploymentModel(newestMatchingContainer);
+            Deployment deployment = ToDeploymentModel(newestMatchingContainer);
 
             Log.LogInformation("Retrieved deployment '{DeploymentId}'.", deploymentId);
 
@@ -534,9 +534,9 @@ namespace DD.Research.DockerExecutor.Api
         ///     The state directory for a deployment.
         /// </param>
         /// <returns>
-        ///     A sequence of <see cref="DeploymentLogModel"/>s.
+        ///     A sequence of <see cref="DeploymentLog"/>s.
         /// </returns>
-        IEnumerable<DeploymentLogModel> ReadDeploymentLogs(DirectoryInfo stateDirectory)
+        IEnumerable<DeploymentLog> ReadDeploymentLogs(DirectoryInfo stateDirectory)
         {
             if (stateDirectory == null)
                 throw new ArgumentNullException(nameof(stateDirectory));
@@ -558,7 +558,7 @@ namespace DD.Research.DockerExecutor.Api
                 Log.LogInformation("Reading deployment log '{LogFile}'...", logFile.FullName);
                 using (StreamReader logReader = logFile.OpenText())
                 {
-                    yield return new DeploymentLogModel
+                    yield return new DeploymentLog
                     {
                         LogFile = logFile.Name,
                         LogContent = logReader.ReadToEnd()
@@ -569,15 +569,15 @@ namespace DD.Research.DockerExecutor.Api
         }
 
         /// <summary>
-        ///     Convert a <see cref="ContainerListResponse">container listing</see> to a <see cref="DeploymentModel"/>.
+        ///     Convert a <see cref="ContainerListResponse">container listing</see> to a <see cref="Deployment"/>.
         /// </summary>
         /// <param name="containerListing">
         ///     The <see cref="ContainerListResponse">container listing</see> to convert.
         /// </param>
         /// <returns>
-        ///     The converted <see cref="DeploymentModel"/>.
+        ///     The converted <see cref="Deployment"/>.
         /// </returns>
-        DeploymentModel ToDeploymentModel(ContainerListResponse containerListing)
+        Deployment ToDeploymentModel(ContainerListResponse containerListing)
         {
             if (containerListing == null)
                 throw new ArgumentNullException(nameof(containerListing));
@@ -585,7 +585,7 @@ namespace DD.Research.DockerExecutor.Api
             string deploymentId = containerListing.Labels["deployment.id"];
             DirectoryInfo deploymentStateDirectory = GetLocalStateDirectory(deploymentId);
 
-            DeploymentModel deployment = new DeploymentModel
+            Deployment deployment = new Deployment
             {
                 Id = deploymentId,
                 ContainerId = containerListing.ID,

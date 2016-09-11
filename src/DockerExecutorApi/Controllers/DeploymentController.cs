@@ -50,7 +50,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         [HttpGet("")]
         public async Task<IActionResult> ListDeployments()
         {
-            DeploymentModel[] deployments = await _deployer.GetDeploymentsAsync();
+            Deployment[] deployments = await _deployer.GetDeploymentsAsync();
 
             return Ok(deployments);
         }
@@ -67,7 +67,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         [HttpGet("{deploymentId}")]
         public async Task<IActionResult> GetDeployment(string deploymentId)
         {
-            DeploymentModel deployment = await _deployer.GetDeploymentAsync(deploymentId);
+            Deployment deployment = await _deployer.GetDeploymentAsync(deploymentId);
             if (deployment == null)
             {
                 Response.Headers.Add("ErrorCode", "DeploymentNotFound");
@@ -89,7 +89,7 @@ namespace DD.Research.DockerExecutor.Api.Controllers
         ///     The deployment result.
         /// </returns>
         [HttpPost("")]
-        public async Task<IActionResult> DeployTemplate([FromBody] CreateDeploymentModel model)
+        public async Task<IActionResult> DeployTemplate([FromBody] DeploymentConfiguration model)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
