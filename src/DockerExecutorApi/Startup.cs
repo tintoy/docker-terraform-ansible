@@ -6,20 +6,34 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 
 namespace DD.Research.DockerExecutor.Api
 {
+    /// <summary>
+    ///     Configuration for the deployment API application.
+    /// </summary>
     public class Startup
     {
-        static IConfiguration Configuration { get; set; }
+        /// <summary>
+        ///     The application configuration.
+        /// </summary>
+        static IConfiguration Configuration { get; } = LoadConfiguration();
 
+        /// <summary>
+        ///     Configure application services.
+        /// </summary>
+        /// <param name="services">
+        ///     The service collection to configure.
+        /// </param>
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddLogging();
+
             services.AddOptions();
             services.Configure<DeployerOptions>(Configuration);
 
-            services.AddLogging();
             services.AddMvc()
                 .AddJsonOptions(json =>
 				{
@@ -32,6 +46,15 @@ namespace DD.Research.DockerExecutor.Api
             services.AddTransient<Deployer>();
         }
 
+        /// <summary>
+        ///     Configure the application pipeline.
+        /// </summary>
+        /// <param name="app">
+        ///     The application pipeline builder.
+        /// </param>
+        /// <param name="loggerFactory">
+        ///     The logger factory.
+        /// </param>
         public void Configure(IApplicationBuilder app, ILoggerFactory loggerFactory)
         {
             loggerFactory.AddConsole(LogLevel.Trace, includeScopes: true);
@@ -45,16 +68,33 @@ namespace DD.Research.DockerExecutor.Api
             );
 
             app.UseDeveloperExceptionPage();
+
+            // Dump out the API key (if supplied).
+            app.Use(next => async context =>
+            {
+                if (context.Request.Headers.ContainsKey("apikey"))
+                {
+                    logger.LogInformation("API Key: '{ApiKey}'.",
+                        context.Request.Headers["apikey"].FirstOrDefault()
+                    );
+                }
+                
+                await next(context);
+            });
             app.UseMvc();
         }
 
+        /// <summary>
+        ///     The main program entry-point.
+        /// </summary>
+        /// <param name="commandLineArguments">
+        ///     Command-line arguments.
+        /// </param>
         public static void Main(string[] commandLineArguments)
         {
             SynchronizationContext.SetSynchronizationContext(
                 new SynchronizationContext()
             );
-
-            Configuration = LoadConfiguration();
 
             IWebHost host = new WebHostBuilder()
                 .UseConfiguration(Configuration)
@@ -69,6 +109,12 @@ namespace DD.Research.DockerExecutor.Api
             }
         }
 
+        /// <summary>
+        ///     Load the application configuration.
+        /// </summary>
+        /// <returns>
+        ///     The configuration.
+        /// </returns>
         static IConfiguration LoadConfiguration()
         {
             return new ConfigurationBuilder()

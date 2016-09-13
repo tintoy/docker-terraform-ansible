@@ -62,10 +62,9 @@ namespace DD.Research.DockerExecutor.Api
                 HostStateDirectory.FullName
             );
 
-            DockerClientConfiguration config = new DockerClientConfiguration(
-                new Uri("unix:///var/run/docker.sock")
-            );
-            Client = config.CreateClient();
+            Client =
+                new DockerClientConfiguration(options.DockerEndPoint)
+                    .CreateClient();
         }
 
         /// <summary>
